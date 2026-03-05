@@ -1,3 +1,4 @@
+import 'package:better_auth_flutter/better_auth_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:device_preview/device_preview.dart';
@@ -5,7 +6,9 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:mitbiz_app/features/riwayat_transaksi/pages/riwayat_transaksi_page.dart';
 import 'package:mitbiz_app/features/stok/pages/stok_page.dart';
 import 'package:provider/provider.dart';
+import 'core/providers/auth_provider.dart';
 import 'core/providers/shift_provider.dart';
+import 'core/widgets/auth_guard.dart';
 import 'routes/app_routes.dart';
 import 'features/auth/pages/login_page.dart';
 import 'features/dashboard/pages/dashboard_page.dart';
@@ -14,6 +17,13 @@ import 'features/transaksi/pages/transaksi_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
+  // Backend API URL (Google Cloud Run)
+  BetterAuth.init(
+    baseUrl: Uri(
+      scheme: "https",
+      host: "backend-pos-508482854424.us-central1.run.app",
+    ),
+  );
 
   runApp(
     DevicePreview(
@@ -21,7 +31,10 @@ void main() async {
       // enabled: false,
       builder:
           (context) => MultiProvider(
-            providers: [ChangeNotifierProvider(create: (_) => ShiftProvider())],
+            providers: [
+              ChangeNotifierProvider(create: (_) => AuthProvider()),
+              ChangeNotifierProvider(create: (_) => ShiftProvider()),
+            ],
             child: const MyApp(),
           ),
     ),
@@ -49,10 +62,13 @@ class MyApp extends StatelessWidget {
       initialRoute: AppRoutes.login,
       routes: {
         AppRoutes.login: (context) => const LoginPage(),
-        AppRoutes.dashboard: (context) => const DashboardPage(),
-        AppRoutes.transaksi: (context) => const TransaksiPage(),
-        AppRoutes.riwayat_transaksi: (context) => const RiwayatTransaksiPage(),
-        AppRoutes.stok: (context) => const StokPage(),
+        AppRoutes.dashboard:
+            (context) => const AuthGuard(child: DashboardPage()),
+        AppRoutes.transaksi:
+            (context) => const AuthGuard(child: TransaksiPage()),
+        AppRoutes.riwayat_transaksi:
+            (context) => const AuthGuard(child: RiwayatTransaksiPage()),
+        AppRoutes.stok: (context) => const AuthGuard(child: StokPage()),
       },
     );
   }

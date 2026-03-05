@@ -1,5 +1,7 @@
+import 'package:better_auth_flutter/better_auth_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/shift_provider.dart';
 import '../../../routes/app_routes.dart';
 
@@ -13,6 +15,8 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final shiftProv = context.watch<ShiftProvider>();
+    final authProv = context.watch<AuthProvider>();
+    final user = authProv.user;
 
     double screenWidth = MediaQuery.of(context).size.width;
     bool isMobile = screenWidth < 800;
@@ -62,12 +66,16 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
         if (isMobile) _buildMobileMenu(context),
 
         if (shiftProv.isShiftActive) _shiftBadge(isMobile),
-        _userChip(isMobile),
+        _userChip(isMobile, user),
 
         const SizedBox(width: 10),
         IconButton(
-          onPressed:
-              () => Navigator.pushReplacementNamed(context, AppRoutes.login),
+          onPressed: () async {
+            await context.read<AuthProvider>().signOut();
+            if (context.mounted) {
+              Navigator.pushReplacementNamed(context, AppRoutes.login);
+            }
+          },
           icon: const Icon(Icons.logout, color: Colors.red, size: 20),
         ),
         const SizedBox(width: 10),
@@ -174,7 +182,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 
-  Widget _userChip(bool isMobile) {
+  Widget _userChip(bool isMobile, User? user) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -186,9 +194,9 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
           Image.asset('assets/images/user.png', width: 18),
           if (!isMobile) ...[
             const SizedBox(width: 5),
-            const Text(
-              "Devon",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+            Text(
+              user?.name ?? "User",
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
             ),
             const Text(
               "/Cashier",
