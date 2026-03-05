@@ -187,7 +187,7 @@ class _DashboardPageState extends State<DashboardPage> {
     bool isMobile,
     double screenWidth,
   ) {
-    double cardWidth = isMobile ? (screenWidth - 60) / 2 : 220;
+    double cardWidth = (screenWidth - 60) / 2;
 
     return Container(
       width: cardWidth,
