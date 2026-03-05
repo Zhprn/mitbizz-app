@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:device_preview/device_preview.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:mitbiz_app/features/riwayat_transaksi/pages/riwayat_transaksi_page.dart';
+import 'package:mitbiz_app/features/stok/pages/stok_page.dart';
 import 'package:provider/provider.dart';
 import 'core/providers/shift_provider.dart';
 import 'routes/app_routes.dart';
@@ -51,6 +52,7 @@ class MyApp extends StatelessWidget {
         AppRoutes.dashboard: (context) => const DashboardPage(),
         AppRoutes.transaksi: (context) => const TransaksiPage(),
         AppRoutes.riwayat_transaksi: (context) => const RiwayatTransaksiPage(),
+        AppRoutes.stok: (context) => const StokPage(),
       },
     );
   }

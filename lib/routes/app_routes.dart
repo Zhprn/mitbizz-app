@@ -3,4 +3,5 @@ class AppRoutes {
   static const dashboard = '/dashboard';
   static const transaksi = '/transaksi';
   static const riwayat_transaksi = '/riwayat-transaksi';
+  static const stok = '/stok';
 }

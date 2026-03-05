@@ -41,7 +41,13 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
               activeMenu == "Transaksi",
               AppRoutes.transaksi,
             ),
-            _navItem(context, "Stok", Icons.inventory_2_outlined, false, "#"),
+            _navItem(
+              context,
+              "Stok",
+              Icons.inventory_2_outlined,
+              activeMenu == "Stok",
+              AppRoutes.stok,
+            ),
             _navItem(
               context,
               "Riwayat",
@@ -83,7 +89,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
               AppRoutes.dashboard,
             ),
             _buildPopupItem("Transaksi", Icons.swap_horiz, AppRoutes.transaksi),
-            _buildPopupItem("Stok", Icons.inventory_2_outlined, "#"),
+            _buildPopupItem("Stok", Icons.inventory_2_outlined, AppRoutes.stok),
             _buildPopupItem(
               "Riwayat",
               Icons.history,
