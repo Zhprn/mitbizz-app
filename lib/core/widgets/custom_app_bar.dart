@@ -46,7 +46,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
               context,
               "Riwayat",
               Icons.history,
-              false,
+              activeMenu == "Riwayat",
               AppRoutes.riwayat_transaksi,
             ),
           ],
