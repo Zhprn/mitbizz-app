@@ -136,106 +136,181 @@ class _TransaksiPageState extends State<TransaksiPage> {
   @override
   Widget build(BuildContext context) {
     final isShiftActive = context.watch<ShiftProvider>().isShiftActive;
+    double screenWidth = MediaQuery.of(context).size.width;
+    bool isMobile =
+        screenWidth < 900; // Breakpoint untuk handphone/tablet portrait
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: const CustomAppBar(activeMenu: "Transaksi"),
-      body: Row(
+    Widget mainContent = Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildHeaderSejajar(isMobile),
+          const SizedBox(height: 24),
+          _buildCategoryFilter(),
+          const SizedBox(height: 24),
           Expanded(
-            flex: 7,
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeaderSejajar(),
-                  const SizedBox(height: 24),
-                  _buildCategoryFilter(),
-                  const SizedBox(height: 24),
-                  Expanded(
-                    child:
-                        filteredProducts.isEmpty
-                            ? const Center(
-                              child: Text("Produk tidak ditemukan"),
-                            )
-                            : GridView.builder(
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 3,
-                                    childAspectRatio: 1.1,
-                                    crossAxisSpacing: 20,
-                                    mainAxisSpacing: 20,
-                                  ),
-                              itemCount: filteredProducts.length,
-                              itemBuilder:
-                                  (context, index) => _buildProductCard(
-                                    filteredProducts[index],
-                                  ),
-                            ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 3,
-            child: Container(
-              margin: const EdgeInsets.fromLTRB(0, 24, 24, 24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: _buildCartSection(isShiftActive),
-            ),
+            child:
+                filteredProducts.isEmpty
+                    ? const Center(child: Text("Produk tidak ditemukan"))
+                    : GridView.builder(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount:
+                            isMobile ? 2 : 3, // 2 kolom di HP, 3 di Tablet
+                        childAspectRatio: 0.9,
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                      ),
+                      itemCount: filteredProducts.length,
+                      itemBuilder:
+                          (context, index) =>
+                              _buildProductCard(filteredProducts[index]),
+                    ),
           ),
         ],
       ),
     );
+
+    Widget cartSection = Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            isMobile
+                ? const BorderRadius.vertical(top: Radius.circular(20))
+                : BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: _buildCartSection(isShiftActive, isMobile),
+    );
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      appBar: const CustomAppBar(activeMenu: "Transaksi"),
+      body:
+          isMobile
+              ? Column(
+                children: [
+                  Expanded(child: mainContent),
+                  // Bottom Sheet style untuk keranjang di HP
+                  GestureDetector(
+                    onTap: () {
+                      if (cartItems.isNotEmpty)
+                        _showMobileCart(context, isShiftActive);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      color: Colors.white,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "Total (${cartItems.length} Item)",
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            "Rp $total",
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: _buildCheckoutButton(isShiftActive),
+                  ),
+                ],
+              )
+              : Row(
+                children: [
+                  Expanded(flex: 7, child: mainContent),
+                  Expanded(
+                    flex: 3,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(0, 24, 24, 24),
+                      child: cartSection,
+                    ),
+                  ),
+                ],
+              ),
+    );
   }
 
-  Widget _buildHeaderSejajar() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        const Text(
-          "Pilih Produk",
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-        ),
-        Container(
-          width: 350,
-          height: 45,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F3F4),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: TextField(
-            controller: _searchController,
-            onChanged: (value) {
-              setState(() {
-                searchQuery = value;
-              });
-            },
-            decoration: InputDecoration(
-              hintText: "Cari nama produk...",
-              prefixIcon: const Icon(Icons.search, color: Colors.grey),
-              suffixIcon:
-                  searchQuery.isNotEmpty
-                      ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => searchQuery = "");
-                        },
-                      )
-                      : null,
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(vertical: 10),
+  // Fungsi untuk menampilkan keranjang di HP (Bottom Sheet)
+  void _showMobileCart(BuildContext context, bool isShiftActive) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => Container(
+            height: MediaQuery.of(context).size.height * 0.8,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
             ),
+            child: _buildCartSection(isShiftActive, true),
           ),
+    );
+  }
+
+  Widget _buildHeaderSejajar(bool isMobile) {
+    return isMobile
+        ? Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Pilih Produk",
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            _buildSearchField(double.infinity),
+          ],
+        )
+        : Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              "Pilih Produk",
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            _buildSearchField(350),
+          ],
+        );
+  }
+
+  Widget _buildSearchField(double width) {
+    return Container(
+      width: width,
+      height: 45,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F3F4),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) => setState(() => searchQuery = value),
+        decoration: InputDecoration(
+          hintText: "Cari nama produk...",
+          prefixIcon: const Icon(Icons.search, color: Colors.grey),
+          suffixIcon:
+              searchQuery.isNotEmpty
+                  ? IconButton(
+                    icon: const Icon(Icons.clear, size: 18),
+                    onPressed: () {
+                      _searchController.clear();
+                      setState(() => searchQuery = "");
+                    },
+                  )
+                  : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
         ),
-      ],
+      ),
     );
   }
 
@@ -303,7 +378,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
         onTap: () => _addToCart(product),
         borderRadius: BorderRadius.circular(15),
         splashColor: Colors.black.withOpacity(0.1),
-        highlightColor: Colors.black.withOpacity(0.05),
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(15),
@@ -313,59 +387,19 @@ class _TransaksiPageState extends State<TransaksiPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Stack(
-                  children: [
-                    ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(15),
-                      ),
-                      child: Image.asset(
-                        product['image'],
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.circle,
-                              size: 8,
-                              color:
-                                  product['isAvailable']
-                                      ? Colors.green
-                                      : Colors.red,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              product['isAvailable']
-                                  ? "Available"
-                                  : "Not Available",
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(15),
+                  ),
+                  child: Image.asset(
+                    product['image'],
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -373,20 +407,16 @@ class _TransaksiPageState extends State<TransaksiPage> {
                       product['name'],
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        fontSize: 14,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      product['code'],
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                    const SizedBox(height: 8),
                     Text(
                       "Rp ${product['price']}",
                       style: const TextStyle(
                         color: Color(0xFF1976D2),
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
                       ),
                     ),
                   ],
@@ -399,7 +429,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
     );
   }
 
-  Widget _buildCartSection(bool isShiftActive) {
+  Widget _buildCartSection(bool isShiftActive, bool isMobile) {
     return Column(
       children: [
         Padding(
@@ -407,51 +437,17 @@ class _TransaksiPageState extends State<TransaksiPage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.assignment_outlined, color: Colors.black54),
-                  const SizedBox(width: 10),
-                  Text(
-                    "Detail Transaksi (${cartItems.length})",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
+              Text(
+                "Detail Transaksi (${cartItems.length})",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
               if (cartItems.isNotEmpty)
-                GestureDetector(
-                  onTap: () => setState(() => cartItems.clear()),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(
-                          Icons.delete_outline,
-                          size: 16,
-                          color: Colors.grey,
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          "Reset",
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                IconButton(
+                  onPressed: () => setState(() => cartItems.clear()),
+                  icon: const Icon(Icons.delete_sweep, color: Colors.grey),
                 ),
             ],
           ),
@@ -460,30 +456,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
         Expanded(
           child:
               cartItems.isEmpty
-                  ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(15),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.shopping_basket_outlined,
-                            size: 40,
-                            color: Colors.grey.shade300,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          "Keranjang kosong",
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  )
+                  ? const Center(child: Text("Keranjang kosong"))
                   : ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: cartItems.length,
@@ -491,232 +464,98 @@ class _TransaksiPageState extends State<TransaksiPage> {
                         (context, index) => _buildCartItem(cartItems[index]),
                   ),
         ),
-        _buildCheckoutArea(isShiftActive),
+        if (!isMobile) _buildCheckoutArea(isShiftActive),
       ],
     );
   }
 
   Widget _buildCartItem(Map<String, dynamic> item) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.asset(
+          item['image'],
+          width: 40,
+          height: 40,
+          fit: BoxFit.cover,
+        ),
       ),
-      child: Column(
+      title: Text(
+        item['name'],
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+      ),
+      subtitle: Text("Rp ${item['price'] * item['qty']}"),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  item['image'],
-                  width: 50,
-                  height: 50,
-                  fit: BoxFit.cover,
+          IconButton(
+            icon: const Icon(Icons.remove_circle_outline, size: 20),
+            onPressed:
+                () => setState(
+                  () =>
+                      item['qty'] > 1 ? item['qty']-- : cartItems.remove(item),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item['name'],
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      "Rp ${item['price']}",
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-              GestureDetector(
-                onTap:
-                    () => setState(
-                      () => cartItems.removeWhere(
-                        (p) => p['name'] == item['name'],
-                      ),
-                    ),
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
-              ),
-            ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                "Rp ${item['price'] * item['qty']}",
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    _qtyBtn(
-                      Icons.remove,
-                      () => setState(() {
-                        if (item['qty'] > 1) item['qty']--;
-                      }),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        "${item['qty']}",
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    _qtyBtn(Icons.add, () => setState(() => item['qty']++)),
-                  ],
-                ),
-              ),
-            ],
+          Text("${item['qty']}"),
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline, size: 20),
+            onPressed: () => setState(() => item['qty']++),
           ),
         ],
       ),
     );
   }
 
-  Widget _qtyBtn(IconData icon, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Icon(icon, size: 16, color: Colors.black87),
+  Widget _buildCheckoutArea(bool isShiftActive) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          _summaryRow("Sub Total", "Rp $subTotal"),
+          _summaryRow("Pajak 12%", "Rp $pajak"),
+          const Divider(),
+          _summaryRow("Total", "Rp $total", isBold: true),
+          const SizedBox(height: 16),
+          _buildCheckoutButton(isShiftActive),
+        ],
       ),
     );
   }
 
-  Widget _buildCheckoutArea(bool isShiftActive) {
-    return Column(
-      children: [
-        if (cartItems.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Diskon Transaksi",
-                  style: TextStyle(color: Colors.grey, fontSize: 14),
-                ),
-                Text(
-                  "Rp $diskon",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Column(
-            children: [
-              _summaryRow("Sub Total", "Rp $subTotal"),
-              _summaryRow("Pajak 12%", "Rp $pajak"),
-              const SizedBox(height: 12),
-              CustomPaint(
-                size: const Size(double.infinity, 1),
-                painter: DashedLinePainter(),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "Total",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    "Rp $total",
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+  Widget _buildCheckoutButton(bool isShiftActive) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton(
+        onPressed: isShiftActive && cartItems.isNotEmpty ? () {} : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF1976D2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: ElevatedButton(
-              onPressed: isShiftActive && cartItems.isNotEmpty ? () {} : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1976D2),
-                disabledBackgroundColor: Colors.grey.shade300,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                elevation: 0,
-              ),
-              child: const Text(
-                "Proses Pembayaran",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
+        child: const Text(
+          "Proses Pembayaran",
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-      ],
+      ),
     );
   }
 
-  Widget _summaryRow(String label, String value) {
+  Widget _summaryRow(String label, String value, {bool isBold = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 14)),
+          Text(
+            label,
+            style: TextStyle(color: isBold ? Colors.black : Colors.grey),
+          ),
           Text(
             value,
-            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+            ),
           ),
         ],
       ),
