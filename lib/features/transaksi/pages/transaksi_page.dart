@@ -111,12 +111,14 @@ class _TransaksiPageState extends State<TransaksiPage> {
           double priceDouble =
               double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0.0;
 
+          int stock = p['stock'] ?? 0;
+
           formattedProducts.add({
             "name": p['nama'] ?? 'Unnamed Product',
             "price": priceDouble.round(),
             "category": p['category']?['nama'] ?? 'Uncategorized',
-            "isAvailable": p['isActive'] == true,
-            "stock": p['stock'] ?? 0,
+            "isAvailable": stock >= 1,
+            "stock": stock,
           });
         }
 
@@ -155,7 +157,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
   void _addToCart(Map<String, dynamic> product) {
     if (!product['isAvailable']) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Produk sedang tidak aktif')),
+        const SnackBar(content: Text('Produk sedang tidak tersedia (Stok 0)')),
       );
       return;
     }
@@ -443,7 +445,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
         borderRadius: BorderRadius.circular(15),
         splashColor: Colors.black.withOpacity(0.1),
         child: Opacity(
-          opacity: isAvailable ? 1.0 : 0.5,
+          opacity: isAvailable ? 1.0 : 0.6,
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -454,21 +456,70 @@ class _TransaksiPageState extends State<TransaksiPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF1F3F4),
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(15),
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF1F3F4),
+                          borderRadius: BorderRadius.vertical(
+                            top: Radius.circular(15),
+                          ),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.inventory_2_outlined,
+                            size: 50,
+                            color: Colors.grey,
+                          ),
+                        ),
                       ),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.inventory_2_outlined,
-                        size: 50,
-                        color: Colors.grey,
+
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black12,
+                                blurRadius: 2,
+                                offset: Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color:
+                                      isAvailable ? Colors.green : Colors.red,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                isAvailable ? "Available" : "Unavailable",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
                 Padding(
