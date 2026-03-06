@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'dart:convert';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 
 class Product {
@@ -19,8 +22,7 @@ class Product {
   });
 
   String get status {
-    if (stock == 0) return 'Habis';
-    if (stock <= minStock) return 'Menipis';
+    if (stock == 0) return 'Tidak Tersedia';
     return 'Tersedia';
   }
 }
@@ -33,96 +35,102 @@ class StokPage extends StatefulWidget {
 }
 
 class _StokPageState extends State<StokPage> {
-  final List<Product> _allProducts = [
-    Product(
-      sku: 'FD-001',
-      name: 'Nasi Goreng',
-      category: 'Makanan',
-      price: 25000,
-      stock: 49,
-      minStock: 10,
-    ),
-    Product(
-      sku: 'FD-002',
-      name: 'Mie Goreng',
-      category: 'Makanan',
-      price: 20000,
-      stock: 15,
-      minStock: 10,
-    ),
-    Product(
-      sku: 'BV-001',
-      name: 'Es Teh Manis',
-      category: 'Minuman',
-      price: 5000,
-      stock: 100,
-      minStock: 20,
-    ),
-    Product(
-      sku: 'BV-002',
-      name: 'Kopi Hitam',
-      category: 'Minuman',
-      price: 15000,
-      stock: 5,
-      minStock: 10,
-    ),
-    Product(
-      sku: 'SN-001',
-      name: 'Kerupuk',
-      category: 'Cemilan',
-      price: 2000,
-      stock: 0,
-      minStock: 50,
-    ),
-    Product(
-      sku: 'FD-003',
-      name: 'Ayam Bakar',
-      category: 'Makanan',
-      price: 30000,
-      stock: 25,
-      minStock: 5,
-    ),
-    Product(
-      sku: 'BV-003',
-      name: 'Jus Jeruk',
-      category: 'Minuman',
-      price: 12000,
-      stock: 30,
-      minStock: 15,
-    ),
-    Product(
-      sku: 'SN-002',
-      name: 'Kentang Goreng',
-      category: 'Cemilan',
-      price: 15000,
-      stock: 49,
-      minStock: 10,
-    ),
-  ];
-
+  List<Product> _allProducts = [];
   List<Product> _filteredProducts = [];
+
+  bool _isLoading = true;
+  String? _errorMessage;
 
   String _searchQuery = '';
   String _selectedCategory = 'Semua Kategori';
   String _selectedStock = 'Semua Stok';
 
-  final List<String> _categories = [
-    'Semua Kategori',
-    'Makanan',
-    'Minuman',
-    'Cemilan',
-  ];
+  List<String> _categories = ['Semua Kategori'];
   final List<String> _stockFilters = [
     'Semua Stok',
     'Tersedia',
-    'Menipis',
-    'Habis',
+    'Tidak Tersedia',
   ];
 
   @override
   void initState() {
     super.initState();
-    _filteredProducts = _allProducts;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchProducts();
+    });
+  }
+
+  Future<void> _fetchProducts() async {
+    final authProv = context.read<AuthProvider>();
+    final tenantId = authProv.tenantId;
+
+    if (tenantId == null) {
+      setState(() {
+        _errorMessage = 'Tenant ID tidak tersedia';
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await authProv.authenticatedGet(
+        '/api/products?tenantId=$tenantId',
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        List rawProducts =
+            (jsonData['data'] is Map && jsonData['data']['data'] != null)
+                ? jsonData['data']['data']
+                : [];
+
+        List<Product> fetchedProducts = [];
+        Set<String> uniqueCategories = {'Semua Kategori'};
+
+        for (var p in rawProducts) {
+          double priceDouble =
+              double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0.0;
+          String cat = p['category']?['nama'] ?? 'Uncategorized';
+          uniqueCategories.add(cat);
+
+          fetchedProducts.add(
+            Product(
+              sku: p['sku'] ?? '-',
+              name: p['nama'] ?? 'Unnamed Product',
+              category: cat,
+              price: priceDouble.round(),
+              stock: p['stock'] ?? 0,
+              minStock: p['minStockLevel'] ?? 0,
+            ),
+          );
+        }
+
+        setState(() {
+          _allProducts = fetchedProducts;
+          _categories = uniqueCategories.toList();
+          if (!_categories.contains(_selectedCategory)) {
+            _selectedCategory = 'Semua Kategori';
+          }
+          _isLoading = false;
+          _applyFilters();
+        });
+      } else {
+        setState(() {
+          _errorMessage = "Gagal memuat produk (${response.statusCode})";
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Terjadi kesalahan: $e";
+        _isLoading = false;
+      });
+    }
   }
 
   void _applyFilters() {
@@ -151,14 +159,13 @@ class _StokPageState extends State<StokPage> {
   @override
   Widget build(BuildContext context) {
     int totalProduk = _allProducts.length;
-    int stokMenipis = _allProducts.where((p) => p.status == 'Menipis').length;
-    int stokHabis = _allProducts.where((p) => p.status == 'Habis').length;
+    int stokMenipis =
+        _allProducts.where((p) => p.stock > 0 && p.stock < 5).length;
+    int stokHabis = _allProducts.where((p) => p.stock == 0).length;
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
-
       appBar: const CustomAppBar(activeMenu: "Stok"),
-
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -184,7 +191,6 @@ class _StokPageState extends State<StokPage> {
               ],
             ),
             const SizedBox(height: 24),
-
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -204,7 +210,6 @@ class _StokPageState extends State<StokPage> {
                       ),
                     ),
                   ),
-
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20.0),
                     child: Row(
@@ -248,7 +253,6 @@ class _StokPageState extends State<StokPage> {
                           ),
                         ),
                         const SizedBox(width: 16),
-
                         Expanded(
                           flex: 1,
                           child: _buildDropdown(
@@ -261,7 +265,6 @@ class _StokPageState extends State<StokPage> {
                           ),
                         ),
                         const SizedBox(width: 16),
-
                         Expanded(
                           flex: 1,
                           child: _buildDropdown(_stockFilters, _selectedStock, (
@@ -275,20 +278,23 @@ class _StokPageState extends State<StokPage> {
                     ),
                   ),
                   const SizedBox(height: 20),
-
                   _buildTableHeader(),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _filteredProducts.length,
-                    separatorBuilder:
-                        (context, index) =>
-                            Divider(height: 1, color: Colors.grey.shade100),
-                    itemBuilder: (context, index) {
-                      return _buildTableRow(_filteredProducts[index]);
-                    },
-                  ),
-                  if (_filteredProducts.isEmpty)
+                  if (_isLoading)
+                    const Padding(
+                      padding: EdgeInsets.all(40.0),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.all(40.0),
+                      child: Center(
+                        child: Text(
+                          _errorMessage!,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    )
+                  else if (_filteredProducts.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(40.0),
                       child: Center(
@@ -296,6 +302,18 @@ class _StokPageState extends State<StokPage> {
                           "Tidak ada produk yang sesuai dengan filter.",
                         ),
                       ),
+                    )
+                  else
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _filteredProducts.length,
+                      separatorBuilder:
+                          (context, index) =>
+                              Divider(height: 1, color: Colors.grey.shade100),
+                      itemBuilder: (context, index) {
+                        return _buildTableRow(_filteredProducts[index]);
+                      },
                     ),
                   const SizedBox(height: 10),
                 ],
@@ -466,9 +484,7 @@ class _StokPageState extends State<StokPage> {
   Widget _buildTableRow(Product product) {
     Color statusColor;
     if (product.status == 'Tersedia') {
-      statusColor = Colors.black87;
-    } else if (product.status == 'Menipis') {
-      statusColor = Colors.orange;
+      statusColor = Colors.green;
     } else {
       statusColor = Colors.red;
     }
