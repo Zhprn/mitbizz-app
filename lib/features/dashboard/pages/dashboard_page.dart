@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:provider/provider.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 
@@ -15,6 +17,9 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   DateTime _now = DateTime.now();
   late Timer _timer;
+  List<dynamic> _products = [];
+  bool _isLoadingProducts = false;
+  String? _productsError;
 
   @override
   void initState() {
@@ -22,6 +27,7 @@ class _DashboardPageState extends State<DashboardPage> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) setState(() => _now = DateTime.now());
     });
+    _fetchProducts();
   }
 
   @override
@@ -30,9 +36,59 @@ class _DashboardPageState extends State<DashboardPage> {
     super.dispose();
   }
 
+  Future<void> _fetchProducts() async {
+    final authProv = context.read<AuthProvider>();
+    final tenantId = authProv.tenantId;
+
+    if (tenantId == null) {
+      setState(() {
+        _productsError = 'Tenant ID not available';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingProducts = true;
+      _productsError = null;
+    });
+
+    try {
+      final response = await authProv.authenticatedGet(
+        '/api/products?tenantId=${authProv.tenantId}',
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        setState(() {
+          // Extract products from nested structure: response.data.data
+          if (data is Map &&
+              data['success'] == true &&
+              data['data'] is Map &&
+              data['data']['data'] is List) {
+            _products = data['data']['data'];
+          } else {
+            _products = [];
+          }
+          _isLoadingProducts = false;
+        });
+      } else {
+        setState(() {
+          _productsError = 'Failed to load products: ${response.statusCode}';
+          _isLoadingProducts = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _productsError = 'Error: $e';
+        _isLoadingProducts = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final shiftProv = context.watch<ShiftProvider>();
+    final authProv = context.watch<AuthProvider>();
     String formattedTime = DateFormat('HH.mm.ss').format(_now);
     String formattedDate = DateFormat('EEE, d MMMM yyyy', 'id_ID').format(_now);
 
@@ -86,6 +142,38 @@ class _DashboardPageState extends State<DashboardPage> {
                       ],
                     ),
           ),
+          // User Info Section with outletId and tenantId
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              border: Border(
+                bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.store_outlined, size: 16, color: Colors.grey[600]),
+                const SizedBox(width: 8),
+                Text(
+                  "Outlet: ${authProv.outletId ?? 'N/A'}",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+                const SizedBox(width: 20),
+                Icon(
+                  Icons.business_outlined,
+                  size: 16,
+                  color: Colors.grey[600],
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  "Tenant: ${authProv.tenantId ?? 'N/A'}",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
@@ -118,6 +206,13 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 30),
+                  const Text(
+                    "Products",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildProductsSection(),
                 ],
               ),
             ),
@@ -177,6 +272,104 @@ class _DashboardPageState extends State<DashboardPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
       ),
+    );
+  }
+
+  Widget _buildProductsSection() {
+    if (_isLoadingProducts) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_productsError != null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red.shade700),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _productsError!,
+                style: TextStyle(color: Colors.red.shade700),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_products.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, color: Colors.grey.shade600),
+            const SizedBox(width: 8),
+            Text(
+              'No products found',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _products.length,
+      itemBuilder: (context, index) {
+        final product = _products[index];
+        final categoryName = product['category']?['nama'] ?? 'Uncategorized';
+        final hargaJual = product['hargaJual'] ?? '0';
+        final stock = product['stock'] ?? 0;
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: Colors.blue.shade100,
+              child: Icon(Icons.inventory_2, color: Colors.blue.shade700),
+            ),
+            title: Text(
+              product['nama'] ?? 'Unnamed Product',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Rp $hargaJual',
+                  style: TextStyle(
+                    color: Colors.green.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  'Stock: $stock | $categoryName',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+            trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
+            isThreeLine: true,
+          ),
+        );
+      },
     );
   }
 
