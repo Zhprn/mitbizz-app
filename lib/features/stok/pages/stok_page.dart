@@ -1,6 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:convert';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 
@@ -35,17 +36,27 @@ class StokPage extends StatefulWidget {
 }
 
 class _StokPageState extends State<StokPage> {
-  List<Product> _allProducts = [];
-  List<Product> _filteredProducts = [];
+  List<Product> _products = [];
+  List<Map<String, dynamic>> _categories = [];
 
   bool _isLoading = true;
   String? _errorMessage;
 
   String _searchQuery = '';
-  String _selectedCategory = 'Semua Kategori';
+  String _selectedCategoryId = '';
+  String _selectedCategoryName = 'Semua Kategori';
   String _selectedStock = 'Semua Stok';
 
-  List<String> _categories = ['Semua Kategori'];
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
+
+  int currentPage = 1;
+  int totalPages = 1;
+
+  int _totalProduk = 0;
+  int _stokMenipis = 0;
+  int _stokHabis = 0;
+
   final List<String> _stockFilters = [
     'Semua Stok',
     'Tersedia',
@@ -56,11 +67,18 @@ class _StokPageState extends State<StokPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchProducts();
+      _fetchInitialData();
     });
   }
 
-  Future<void> _fetchProducts() async {
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchInitialData() async {
     final authProv = context.read<AuthProvider>();
     final tenantId = authProv.tenantId;
 
@@ -74,13 +92,101 @@ class _StokPageState extends State<StokPage> {
 
     setState(() {
       _isLoading = true;
+    });
+
+    try {
+      final responses = await Future.wait([
+        authProv.authenticatedGet('/api/categories?tenantId=$tenantId'),
+        authProv.authenticatedGet(
+          '/api/products?tenantId=$tenantId&limit=1000',
+        ),
+      ]);
+
+      final catRes = responses[0];
+      final statRes = responses[1];
+
+      if (catRes.statusCode == 200) {
+        final catJson = json.decode(catRes.body);
+        List rawCategories =
+            (catJson['data'] is Map && catJson['data']['data'] != null)
+                ? catJson['data']['data']
+                : [];
+
+        List<Map<String, dynamic>> cats = [
+          {"id": "", "name": "Semua Kategori"},
+        ];
+
+        for (var c in rawCategories) {
+          cats.add({"id": c['id'] ?? '', "name": c['nama'] ?? 'Uncategorized'});
+        }
+        _categories = cats;
+      }
+
+      if (statRes.statusCode == 200) {
+        final statJson = json.decode(statRes.body);
+        List allProducts =
+            (statJson['data'] is Map && statJson['data']['data'] != null)
+                ? statJson['data']['data']
+                : [];
+
+        int total = 0;
+        int menipis = 0;
+        int habis = 0;
+
+        for (var p in allProducts) {
+          total++;
+          int stock = p['stock'] ?? 0;
+          if (stock == 0) {
+            habis++;
+          } else if (stock > 0 && stock < 5) {
+            menipis++;
+          }
+        }
+
+        _totalProduk = total;
+        _stokMenipis = menipis;
+        _stokHabis = habis;
+      }
+
+      await _fetchProductsList(page: 1);
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Terjadi kesalahan inisialisasi: $e";
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _fetchProductsList({int page = 1}) async {
+    final authProv = context.read<AuthProvider>();
+    final tenantId = authProv.tenantId;
+
+    setState(() {
+      _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final response = await authProv.authenticatedGet(
-        '/api/products?tenantId=$tenantId',
-      );
+      String urlProduct =
+          '/api/products?tenantId=$tenantId&page=$page&limit=10';
+
+      if (_searchQuery.isNotEmpty) {
+        String formattedSearch = _searchQuery
+            .split(' ')
+            .map((word) {
+              if (word.isEmpty) return '';
+              return word[0].toUpperCase() + word.substring(1).toLowerCase();
+            })
+            .join(' ');
+
+        urlProduct += '&search=$formattedSearch';
+      }
+
+      if (_selectedCategoryId.isNotEmpty) {
+        urlProduct += '&categoryId=$_selectedCategoryId';
+      }
+
+      final response = await authProv.authenticatedGet(urlProduct);
 
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
@@ -89,80 +195,60 @@ class _StokPageState extends State<StokPage> {
                 ? jsonData['data']['data']
                 : [];
 
+        int metaTotalPages = 1;
+        if (jsonData['data'] is Map && jsonData['data']['meta'] != null) {
+          metaTotalPages = jsonData['data']['meta']['totalPages'] ?? 1;
+        }
+
         List<Product> fetchedProducts = [];
-        Set<String> uniqueCategories = {'Semua Kategori'};
 
         for (var p in rawProducts) {
           double priceDouble =
               double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0.0;
           String cat = p['category']?['nama'] ?? 'Uncategorized';
-          uniqueCategories.add(cat);
 
-          fetchedProducts.add(
-            Product(
-              sku: p['sku'] ?? '-',
-              name: p['nama'] ?? 'Unnamed Product',
-              category: cat,
-              price: priceDouble.round(),
-              stock: p['stock'] ?? 0,
-              minStock: p['minStockLevel'] ?? 0,
-            ),
+          Product product = Product(
+            sku: p['sku'] ?? '-',
+            name: p['nama'] ?? 'Unnamed Product',
+            category: cat,
+            price: priceDouble.round(),
+            stock: p['stock'] ?? 0,
+            minStock: p['minStockLevel'] ?? 0,
           );
+
+          if (_selectedStock == 'Semua Stok') {
+            fetchedProducts.add(product);
+          } else if (_selectedStock == 'Tersedia' &&
+              product.status == 'Tersedia') {
+            fetchedProducts.add(product);
+          } else if (_selectedStock == 'Tidak Tersedia' &&
+              product.status == 'Tidak Tersedia') {
+            fetchedProducts.add(product);
+          }
         }
 
         setState(() {
-          _allProducts = fetchedProducts;
-          _categories = uniqueCategories.toList();
-          if (!_categories.contains(_selectedCategory)) {
-            _selectedCategory = 'Semua Kategori';
-          }
+          _products = fetchedProducts;
+          currentPage = page;
+          totalPages = metaTotalPages;
           _isLoading = false;
-          _applyFilters();
         });
       } else {
         setState(() {
-          _errorMessage = "Gagal memuat produk (${response.statusCode})";
+          _errorMessage = "Gagal memuat list produk (${response.statusCode})";
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = "Terjadi kesalahan: $e";
+        _errorMessage = "Terjadi kesalahan fetch list: $e";
         _isLoading = false;
       });
     }
   }
 
-  void _applyFilters() {
-    setState(() {
-      _filteredProducts =
-          _allProducts.where((product) {
-            final matchesSearch =
-                product.name.toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ) ||
-                product.sku.toLowerCase().contains(_searchQuery.toLowerCase());
-
-            final matchesCategory =
-                _selectedCategory == 'Semua Kategori' ||
-                product.category == _selectedCategory;
-
-            final matchesStock =
-                _selectedStock == 'Semua Stok' ||
-                product.status == _selectedStock;
-
-            return matchesSearch && matchesCategory && matchesStock;
-          }).toList();
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
-    int totalProduk = _allProducts.length;
-    int stokMenipis =
-        _allProducts.where((p) => p.stock > 0 && p.stock < 5).length;
-    int stokHabis = _allProducts.where((p) => p.stock == 0).length;
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: const CustomAppBar(activeMenu: "Stok"),
@@ -175,17 +261,17 @@ class _StokPageState extends State<StokPage> {
               children: [
                 _buildStatCard(
                   "Total Produk",
-                  totalProduk.toString(),
+                  _totalProduk.toString(),
                   Icons.inventory_2_outlined,
                 ),
                 _buildStatCard(
                   "Stok Menipis",
-                  stokMenipis.toString(),
+                  _stokMenipis.toString(),
                   Icons.warning_amber_rounded,
                 ),
                 _buildStatCard(
                   "Stok Habis",
-                  stokHabis.toString(),
+                  _stokHabis.toString(),
                   Icons.error_outline,
                 ),
               ],
@@ -217,9 +303,18 @@ class _StokPageState extends State<StokPage> {
                         Expanded(
                           flex: 2,
                           child: TextField(
+                            controller: _searchController,
                             onChanged: (value) {
+                              if (_debounce?.isActive ?? false) {
+                                _debounce!.cancel();
+                              }
                               _searchQuery = value;
-                              _applyFilters();
+                              _debounce = Timer(
+                                const Duration(milliseconds: 500),
+                                () {
+                                  _fetchProductsList(page: 1);
+                                },
+                              );
                             },
                             decoration: InputDecoration(
                               hintText: "Cari produk atau SKU...",
@@ -232,6 +327,22 @@ class _StokPageState extends State<StokPage> {
                                 color: Colors.grey,
                                 size: 20,
                               ),
+                              suffixIcon:
+                                  _searchQuery.isNotEmpty
+                                      ? IconButton(
+                                        icon: const Icon(Icons.clear, size: 18),
+                                        onPressed: () {
+                                          if (_debounce?.isActive ?? false) {
+                                            _debounce!.cancel();
+                                          }
+                                          _searchController.clear();
+                                          setState(() {
+                                            _searchQuery = "";
+                                          });
+                                          _fetchProductsList(page: 1);
+                                        },
+                                      )
+                                      : null,
                               contentPadding: const EdgeInsets.symmetric(
                                 vertical: 0,
                               ),
@@ -253,27 +364,9 @@ class _StokPageState extends State<StokPage> {
                           ),
                         ),
                         const SizedBox(width: 16),
-                        Expanded(
-                          flex: 1,
-                          child: _buildDropdown(
-                            _categories,
-                            _selectedCategory,
-                            (value) {
-                              _selectedCategory = value!;
-                              _applyFilters();
-                            },
-                          ),
-                        ),
+                        Expanded(flex: 1, child: _buildCategoryDropdown()),
                         const SizedBox(width: 16),
-                        Expanded(
-                          flex: 1,
-                          child: _buildDropdown(_stockFilters, _selectedStock, (
-                            value,
-                          ) {
-                            _selectedStock = value!;
-                            _applyFilters();
-                          }),
-                        ),
+                        Expanded(flex: 1, child: _buildStockDropdown()),
                       ],
                     ),
                   ),
@@ -294,26 +387,32 @@ class _StokPageState extends State<StokPage> {
                         ),
                       ),
                     )
-                  else if (_filteredProducts.isEmpty)
+                  else if (_products.isEmpty)
                     const Padding(
                       padding: EdgeInsets.all(40.0),
                       child: Center(
-                        child: Text(
-                          "Tidak ada produk yang sesuai dengan filter.",
-                        ),
+                        child: Text("Tidak ada produk yang ditemukan."),
                       ),
                     )
                   else
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _filteredProducts.length,
-                      separatorBuilder:
-                          (context, index) =>
-                              Divider(height: 1, color: Colors.grey.shade100),
-                      itemBuilder: (context, index) {
-                        return _buildTableRow(_filteredProducts[index]);
-                      },
+                    Column(
+                      children: [
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _products.length,
+                          separatorBuilder:
+                              (context, index) => Divider(
+                                height: 1,
+                                color: Colors.grey.shade100,
+                              ),
+                          itemBuilder: (context, index) {
+                            return _buildTableRow(_products[index]);
+                          },
+                        ),
+                        if (totalPages > 1 && _selectedStock == 'Semua Stok')
+                          _buildPagination(),
+                      ],
                     ),
                   const SizedBox(height: 10),
                 ],
@@ -321,6 +420,113 @@ class _StokPageState extends State<StokPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedCategoryName,
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+          style: const TextStyle(color: Colors.black87, fontSize: 14),
+          onChanged: (String? newValue) {
+            if (newValue != null && newValue != _selectedCategoryName) {
+              setState(() {
+                _selectedCategoryName = newValue;
+                final selectedCat = _categories.firstWhere(
+                  (c) => c['name'] == newValue,
+                );
+                _selectedCategoryId = selectedCat['id'];
+              });
+              _fetchProductsList(page: 1);
+            }
+          },
+          items:
+              _categories.map<DropdownMenuItem<String>>((
+                Map<String, dynamic> cat,
+              ) {
+                return DropdownMenuItem<String>(
+                  value: cat['name'],
+                  child: Text(cat['name']),
+                );
+              }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStockDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _selectedStock,
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+          style: const TextStyle(color: Colors.black87, fontSize: 14),
+          onChanged: (String? newValue) {
+            if (newValue != null && newValue != _selectedStock) {
+              setState(() {
+                _selectedStock = newValue;
+              });
+              _fetchProductsList(page: 1);
+            }
+          },
+          items:
+              _stockFilters.map((String value) {
+                return DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(value),
+                );
+              }).toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPagination() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed:
+                currentPage > 1
+                    ? () => _fetchProductsList(page: currentPage - 1)
+                    : null,
+            color: currentPage > 1 ? Colors.blue : Colors.grey,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            "Page $currentPage of $totalPages",
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed:
+                currentPage < totalPages
+                    ? () => _fetchProductsList(page: currentPage + 1)
+                    : null,
+            color: currentPage < totalPages ? Colors.blue : Colors.grey,
+          ),
+        ],
       ),
     );
   }
@@ -357,37 +563,6 @@ class _StokPageState extends State<StokPage> {
               style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropdown(
-    List<String> items,
-    String selectedValue,
-    ValueChanged<String?> onChanged,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: selectedValue,
-          isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
-          style: const TextStyle(color: Colors.black87, fontSize: 14),
-          onChanged: onChanged,
-          items:
-              items.map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
         ),
       ),
     );
