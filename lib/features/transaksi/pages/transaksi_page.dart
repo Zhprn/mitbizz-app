@@ -1,6 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:convert';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
@@ -34,6 +35,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
   String selectedCategory = "Semua";
   String searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
   List<Map<String, dynamic>> cartItems = [];
 
   List<Map<String, dynamic>> categories = [];
@@ -41,6 +43,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   bool _isLoading = true;
   String? _errorMessage;
+
+  int currentPage = 1;
+  int totalPages = 1;
 
   @override
   void initState() {
@@ -50,7 +55,14 @@ class _TransaksiPageState extends State<TransaksiPage> {
     });
   }
 
-  Future<void> _fetchData() async {
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchData({int page = 1}) async {
     final authProv = context.read<AuthProvider>();
     final tenantId = authProv.tenantId;
 
@@ -68,9 +80,36 @@ class _TransaksiPageState extends State<TransaksiPage> {
     });
 
     try {
+      String urlCategory = '/api/categories?tenantId=$tenantId';
+      String urlProduct =
+          '/api/products?tenantId=$tenantId&page=$page&limit=10';
+
+      if (selectedCategory != "Semua") {
+        final cat = categories.firstWhere(
+          (c) => c['name'] == selectedCategory,
+          orElse: () => {"id": ""},
+        );
+        final catId = cat['id'];
+        if (catId != null && catId.toString().isNotEmpty) {
+          urlProduct += '&categoryId=$catId';
+        }
+      }
+
+      if (searchQuery.isNotEmpty) {
+        String formattedSearch = searchQuery
+            .split(' ')
+            .map((word) {
+              if (word.isEmpty) return '';
+              return word[0].toUpperCase() + word.substring(1).toLowerCase();
+            })
+            .join(' ');
+
+        urlProduct += '&search=$formattedSearch';
+      }
+
       final responses = await Future.wait([
-        authProv.authenticatedGet('/api/categories?tenantId=$tenantId'),
-        authProv.authenticatedGet('/api/products?tenantId=$tenantId'),
+        authProv.authenticatedGet(urlCategory),
+        authProv.authenticatedGet(urlProduct),
       ]);
 
       final catRes = responses[0];
@@ -90,21 +129,10 @@ class _TransaksiPageState extends State<TransaksiPage> {
                 ? prodJson['data']['data']
                 : [];
 
-        int totalSemua = 0;
-        List<Map<String, dynamic>> tempCategories = [];
-
-        for (var c in rawCategories) {
-          String catName = c['nama'] ?? 'Uncategorized';
-          int count = int.tryParse(c['productsCount']?.toString() ?? '0') ?? 0;
-          totalSemua += count;
-
-          tempCategories.add({"name": catName, "count": count});
+        int metaTotalPages = 1;
+        if (prodJson['data'] is Map && prodJson['data']['meta'] != null) {
+          metaTotalPages = prodJson['data']['meta']['totalPages'] ?? 1;
         }
-
-        List<Map<String, dynamic>> formattedCategories = [
-          {"name": "Semua", "count": totalSemua},
-        ];
-        formattedCategories.addAll(tempCategories);
 
         List<Map<String, dynamic>> formattedProducts = [];
         for (var p in rawProducts) {
@@ -114,6 +142,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
           int stock = p['stock'] ?? 0;
 
           formattedProducts.add({
+            "id": p['id'],
             "name": p['nama'] ?? 'Unnamed Product',
             "price": priceDouble.round(),
             "category": p['category']?['nama'] ?? 'Uncategorized',
@@ -122,9 +151,30 @@ class _TransaksiPageState extends State<TransaksiPage> {
           });
         }
 
+        int totalSemua = 0;
+        List<Map<String, dynamic>> tempCategories = [];
+
+        for (var c in rawCategories) {
+          String catId = c['id'] ?? '';
+          String catName = c['nama'] ?? 'Uncategorized';
+          int count = int.tryParse(c['productsCount']?.toString() ?? '0') ?? 0;
+          totalSemua += count;
+
+          tempCategories.add({"id": catId, "name": catName, "count": count});
+        }
+
+        List<Map<String, dynamic>> formattedCategories = [
+          {"id": "", "name": "Semua", "count": totalSemua},
+        ];
+        formattedCategories.addAll(tempCategories);
+
         setState(() {
-          categories = formattedCategories;
+          if (categories.isEmpty || selectedCategory == "Semua") {
+            categories = formattedCategories;
+          }
           products = formattedProducts;
+          currentPage = page;
+          totalPages = metaTotalPages;
           _isLoading = false;
         });
       } else {
@@ -140,18 +190,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
         _isLoading = false;
       });
     }
-  }
-
-  List<Map<String, dynamic>> get filteredProducts {
-    return products.where((product) {
-      bool matchesCategory =
-          selectedCategory == "Semua" ||
-          product['category'] == selectedCategory;
-      bool matchesSearch = product['name'].toLowerCase().contains(
-        searchQuery.toLowerCase(),
-      );
-      return matchesCategory && matchesSearch;
-    }).toList();
   }
 
   void _addToCart(Map<String, dynamic> product) {
@@ -182,12 +220,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
   int get total => (subTotal - diskon);
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final isShiftActive = context.watch<ShiftProvider>().isShiftActive;
     double screenWidth = MediaQuery.of(context).size.width;
@@ -200,11 +232,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
         children: [
           _buildHeaderSejajar(isMobile),
           const SizedBox(height: 24),
-
-          if (!_isLoading && _errorMessage == null) _buildCategoryFilter(),
-
+          if (!_isLoading && _errorMessage == null && categories.isNotEmpty)
+            _buildCategoryFilter(),
           const SizedBox(height: 24),
-
           Expanded(
             child:
                 _isLoading
@@ -217,19 +247,27 @@ class _TransaksiPageState extends State<TransaksiPage> {
                         textAlign: TextAlign.center,
                       ),
                     )
-                    : filteredProducts.isEmpty
+                    : products.isEmpty
                     ? const Center(child: Text("Produk tidak ditemukan"))
-                    : GridView.builder(
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: isMobile ? 2 : 3,
-                        childAspectRatio: 0.85,
-                        crossAxisSpacing: 20,
-                        mainAxisSpacing: 20,
-                      ),
-                      itemCount: filteredProducts.length,
-                      itemBuilder:
-                          (context, index) =>
-                              _buildProductCard(filteredProducts[index]),
+                    : Column(
+                      children: [
+                        Expanded(
+                          child: GridView.builder(
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: isMobile ? 2 : 3,
+                                  childAspectRatio: 0.85,
+                                  crossAxisSpacing: 20,
+                                  mainAxisSpacing: 20,
+                                ),
+                            itemCount: products.length,
+                            itemBuilder:
+                                (context, index) =>
+                                    _buildProductCard(products[index]),
+                          ),
+                        ),
+                        _buildPagination(),
+                      ],
                     ),
           ),
         ],
@@ -357,7 +395,15 @@ class _TransaksiPageState extends State<TransaksiPage> {
       ),
       child: TextField(
         controller: _searchController,
-        onChanged: (value) => setState(() => searchQuery = value),
+        onChanged: (value) {
+          if (_debounce?.isActive ?? false) _debounce!.cancel();
+          setState(() {
+            searchQuery = value;
+          });
+          _debounce = Timer(const Duration(milliseconds: 500), () {
+            _fetchData(page: 1);
+          });
+        },
         decoration: InputDecoration(
           hintText: "Cari nama produk...",
           prefixIcon: const Icon(Icons.search, color: Colors.grey),
@@ -366,8 +412,12 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   ? IconButton(
                     icon: const Icon(Icons.clear, size: 18),
                     onPressed: () {
+                      if (_debounce?.isActive ?? false) _debounce!.cancel();
                       _searchController.clear();
-                      setState(() => searchQuery = "");
+                      setState(() {
+                        searchQuery = "";
+                      });
+                      _fetchData(page: 1);
                     },
                   )
                   : null,
@@ -393,7 +443,14 @@ class _TransaksiPageState extends State<TransaksiPage> {
   Widget _buildCategoryTab(String name, int count) {
     bool isActive = selectedCategory == name;
     return GestureDetector(
-      onTap: () => setState(() => selectedCategory = name),
+      onTap: () {
+        if (!isActive) {
+          setState(() {
+            selectedCategory = name;
+          });
+          _fetchData(page: 1);
+        }
+      },
       child: Container(
         margin: const EdgeInsets.only(right: 12),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -474,7 +531,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
                           ),
                         ),
                       ),
-
                       Positioned(
                         top: 8,
                         left: 8,
@@ -559,6 +615,41 @@ class _TransaksiPageState extends State<TransaksiPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPagination() {
+    if (totalPages <= 1) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed:
+                currentPage > 1
+                    ? () => _fetchData(page: currentPage - 1)
+                    : null,
+            color: currentPage > 1 ? Colors.blue : Colors.grey,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            "Page $currentPage of $totalPages",
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed:
+                currentPage < totalPages
+                    ? () => _fetchData(page: currentPage + 1)
+                    : null,
+            color: currentPage < totalPages ? Colors.blue : Colors.grey,
+          ),
+        ],
       ),
     );
   }
