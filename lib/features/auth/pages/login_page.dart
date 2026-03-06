@@ -42,139 +42,160 @@ class _LoginPageState extends State<LoginPage> {
     return Consumer<AuthProvider>(
       builder: (context, auth, _) {
         return AuthLayout(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Masuk ke Mitbiz POS",
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
+          // Tambahkan Center agar posisi berada di tengah pada layar besar
+          child: Center(
+            // Tambahkan SingleChildScrollView untuk mencegah overflow saat keyboard muncul
+            child: SingleChildScrollView(
+              // ConstrainedBox membatasi lebar maksimal form agar tidak terlalu memanjang di Tablet/Web
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 450),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment:
+                        MainAxisAlignment
+                            .center, // Pusatkan konten secara vertikal
+                    children: [
+                      const Text(
+                        "Masuk ke Mitbiz POS",
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
 
-                const Text(
-                  "Kelola transaksi, stok, dan laporan dalam satu sistem terintegrasi.",
-                  style: TextStyle(color: Colors.grey),
-                ),
+                      const Text(
+                        "Kelola transaksi, stok, dan laporan dalam satu sistem terintegrasi.",
+                        style: TextStyle(color: Colors.grey),
+                      ),
 
-                if (auth.error != null) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.red.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.error_outline, color: Colors.red.shade700),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            auth.error!,
-                            style: TextStyle(color: Colors.red.shade700),
+                      if (auth.error != null) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                color: Colors.red.shade700,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  auth.error!,
+                                  style: TextStyle(color: Colors.red.shade700),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                ],
 
-                const SizedBox(height: 30),
+                      const SizedBox(height: 30),
 
-                const Text("Email"),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: _inputDecoration("Input your email"),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Email is required';
-                    }
-                    if (!value.contains('@')) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 20),
-
-                const Text("Password"),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: _inputDecoration("Input your store password"),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Password is required';
-                    }
-                    if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
-                    }
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 10),
-
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: () {},
-                    child: const Text(
-                      "Lupa password?",
-                      style: TextStyle(color: Colors.blue),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E88E5),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                      const Text("Email"),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: _inputDecoration("Input your email"),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Email is required';
+                          }
+                          if (!value.contains('@')) {
+                            return 'Please enter a valid email';
+                          }
+                          return null;
+                        },
                       ),
-                    ),
-                    onPressed: auth.isLoading ? null : _handleLogin,
-                    child:
-                        auth.isLoading
-                            ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
-                                ),
-                              ),
-                            )
-                            : const Text(
-                              "Next",
-                              style: TextStyle(fontSize: 16),
+
+                      const SizedBox(height: 20),
+
+                      const Text("Password"),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: true,
+                        decoration: _inputDecoration(
+                          "Input your store password",
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Password is required';
+                          }
+                          if (value.length < 6) {
+                            return 'Password must be at least 6 characters';
+                          }
+                          return null;
+                        },
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () {},
+                          child: const Text(
+                            "Lupa password?",
+                            style: TextStyle(color: Colors.blue),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E88E5),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
+                          ),
+                          onPressed: auth.isLoading ? null : _handleLogin,
+                          child:
+                              auth.isLoading
+                                  ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                  : const Text(
+                                    "Next",
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      const Center(
+                        child: Text(
+                          "Butuh bantuan? Hubungi admin bisnis Anda.",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-
-                const SizedBox(height: 20),
-
-                const Center(
-                  child: Text(
-                    "Butuh bantuan? Hubungi admin bisnis Anda.",
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         );

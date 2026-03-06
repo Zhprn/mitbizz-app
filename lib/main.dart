@@ -18,7 +18,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
   // Backend API URL (Google Cloud Run)
-  BetterAuth.init(
+  await BetterAuth.init(
     baseUrl: Uri(
       scheme: "https",
       host: "backend-pos-508482854424.us-central1.run.app",

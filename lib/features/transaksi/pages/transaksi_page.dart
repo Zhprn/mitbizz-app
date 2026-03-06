@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'dart:convert';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 
@@ -34,64 +36,109 @@ class _TransaksiPageState extends State<TransaksiPage> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> cartItems = [];
 
-  final List<Map<String, dynamic>> categories = [
-    {"name": "Semua", "count": 34},
-    {"name": "Makanan", "count": 13},
-    {"name": "Minuman", "count": 4},
-    {"name": "Snack", "count": 8},
-    {"name": "Alat Tulis", "count": 12},
-  ];
+  List<Map<String, dynamic>> categories = [];
+  List<Map<String, dynamic>> products = [];
 
-  final List<Map<String, dynamic>> products = [
-    {
-      "name": "Nasi Goreng",
-      "code": "FD-001",
-      "price": 15000,
-      "isAvailable": true,
-      "image": "assets/images/menu4.png",
-      "category": "Makanan",
-    },
-    {
-      "name": "Es Jeruk",
-      "code": "DR-001",
-      "price": 15000,
-      "isAvailable": true,
-      "image": "assets/images/menu1.png",
-      "category": "Minuman",
-    },
-    {
-      "name": "Nasi Goreng Spesial",
-      "code": "FD-001",
-      "price": 15000,
-      "isAvailable": true,
-      "image": "assets/images/menu2.png",
-      "category": "Makanan",
-    },
-    {
-      "name": "Es Teh Manis",
-      "code": "DR-001",
-      "price": 10000,
-      "isAvailable": true,
-      "image": "assets/images/menu3.png",
-      "category": "Minuman",
-    },
-    {
-      "name": "Mie Goreng Telur",
-      "code": "FD-001",
-      "price": 15000,
-      "isAvailable": false,
-      "image": "assets/images/menu2.png",
-      "category": "Makanan",
-    },
-    {
-      "name": "Nasi Rendang",
-      "code": "FD-001",
-      "price": 15000,
-      "isAvailable": true,
-      "image": "assets/images/menu2.png",
-      "category": "Makanan",
-    },
-  ];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchData();
+    });
+  }
+
+  Future<void> _fetchData() async {
+    final authProv = context.read<AuthProvider>();
+    final tenantId = authProv.tenantId;
+
+    if (tenantId == null) {
+      setState(() {
+        _errorMessage = 'Tenant ID tidak tersedia';
+        _isLoading = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final responses = await Future.wait([
+        authProv.authenticatedGet('/api/categories?tenantId=$tenantId'),
+        authProv.authenticatedGet('/api/products?tenantId=$tenantId'),
+      ]);
+
+      final catRes = responses[0];
+      final prodRes = responses[1];
+
+      if (catRes.statusCode == 200 && prodRes.statusCode == 200) {
+        final catJson = json.decode(catRes.body);
+        final prodJson = json.decode(prodRes.body);
+
+        List rawCategories =
+            (catJson['data'] is Map && catJson['data']['data'] != null)
+                ? catJson['data']['data']
+                : [];
+
+        List rawProducts =
+            (prodJson['data'] is Map && prodJson['data']['data'] != null)
+                ? prodJson['data']['data']
+                : [];
+
+        int totalSemua = 0;
+        List<Map<String, dynamic>> tempCategories = [];
+
+        for (var c in rawCategories) {
+          String catName = c['nama'] ?? 'Uncategorized';
+          int count = int.tryParse(c['productsCount']?.toString() ?? '0') ?? 0;
+          totalSemua += count;
+
+          tempCategories.add({"name": catName, "count": count});
+        }
+
+        List<Map<String, dynamic>> formattedCategories = [
+          {"name": "Semua", "count": totalSemua},
+        ];
+        formattedCategories.addAll(tempCategories);
+
+        List<Map<String, dynamic>> formattedProducts = [];
+        for (var p in rawProducts) {
+          double priceDouble =
+              double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0.0;
+
+          formattedProducts.add({
+            "name": p['nama'] ?? 'Unnamed Product',
+            "price": priceDouble.round(),
+            "category": p['category']?['nama'] ?? 'Uncategorized',
+            "isAvailable": p['isActive'] == true,
+            "stock": p['stock'] ?? 0,
+          });
+        }
+
+        setState(() {
+          categories = formattedCategories;
+          products = formattedProducts;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _errorMessage =
+              "Gagal memuat data: Cat(${catRes.statusCode}), Prod(${prodRes.statusCode})";
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Terjadi kesalahan: $e";
+        _isLoading = false;
+      });
+    }
+  }
 
   List<Map<String, dynamic>> get filteredProducts {
     return products.where((product) {
@@ -106,7 +153,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   void _addToCart(Map<String, dynamic> product) {
-    if (!product['isAvailable']) return;
+    if (!product['isAvailable']) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Produk sedang tidak aktif')),
+      );
+      return;
+    }
+
     setState(() {
       int index = cartItems.indexWhere(
         (item) => item['name'] == product['name'],
@@ -121,11 +174,10 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   int get subTotal => cartItems.fold(
     0,
-    (sum, item) => sum + (item['price'] * item['qty'] as int),
+    (sum, item) => sum + ((item['price'] as num).toInt() * item['qty'] as int),
   );
   int get diskon => 0;
-  int get pajak => ((subTotal - diskon) * 0.12).round();
-  int get total => (subTotal - diskon) + pajak;
+  int get total => (subTotal - diskon);
 
   @override
   void dispose() {
@@ -137,8 +189,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
   Widget build(BuildContext context) {
     final isShiftActive = context.watch<ShiftProvider>().isShiftActive;
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile =
-        screenWidth < 900; // Breakpoint untuk handphone/tablet portrait
+    bool isMobile = screenWidth < 900;
 
     Widget mainContent = Padding(
       padding: const EdgeInsets.all(24.0),
@@ -147,17 +198,29 @@ class _TransaksiPageState extends State<TransaksiPage> {
         children: [
           _buildHeaderSejajar(isMobile),
           const SizedBox(height: 24),
-          _buildCategoryFilter(),
+
+          if (!_isLoading && _errorMessage == null) _buildCategoryFilter(),
+
           const SizedBox(height: 24),
+
           Expanded(
             child:
-                filteredProducts.isEmpty
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _errorMessage != null
+                    ? Center(
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                    : filteredProducts.isEmpty
                     ? const Center(child: Text("Produk tidak ditemukan"))
                     : GridView.builder(
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount:
-                            isMobile ? 2 : 3, // 2 kolom di HP, 3 di Tablet
-                        childAspectRatio: 0.9,
+                        crossAxisCount: isMobile ? 2 : 3,
+                        childAspectRatio: 0.85,
                         crossAxisSpacing: 20,
                         mainAxisSpacing: 20,
                       ),
@@ -191,11 +254,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
               ? Column(
                 children: [
                   Expanded(child: mainContent),
-                  // Bottom Sheet style untuk keranjang di HP
                   GestureDetector(
                     onTap: () {
-                      if (cartItems.isNotEmpty)
+                      if (cartItems.isNotEmpty) {
                         _showMobileCart(context, isShiftActive);
+                      }
                     },
                     child: Container(
                       padding: const EdgeInsets.all(16),
@@ -240,7 +303,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
     );
   }
 
-  // Fungsi untuk menampilkan keranjang di HP (Bottom Sheet)
   void _showMobileCart(BuildContext context, bool isShiftActive) {
     showModalBottomSheet(
       context: context,
@@ -372,57 +434,78 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   Widget _buildProductCard(Map<String, dynamic> product) {
+    bool isAvailable = product['isAvailable'] == true;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _addToCart(product),
         borderRadius: BorderRadius.circular(15),
         splashColor: Colors.black.withOpacity(0.1),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: Colors.grey.shade100),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(15),
-                  ),
-                  child: Image.asset(
-                    product['image'],
+        child: Opacity(
+          opacity: isAvailable ? 1.0 : 0.5,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Container(
                     width: double.infinity,
-                    fit: BoxFit.cover,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF1F3F4),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(15),
+                      ),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.inventory_2_outlined,
+                        size: 50,
+                        color: Colors.grey,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      product['name'],
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product['name'],
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      "Rp ${product['price']}",
-                      style: const TextStyle(
-                        color: Color(0xFF1976D2),
-                        fontWeight: FontWeight.bold,
+                      const SizedBox(height: 4),
+                      Text(
+                        "Rp ${product['price']}",
+                        style: const TextStyle(
+                          color: Color(0xFF1976D2),
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        "Stok: ${product['stock']}",
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -471,35 +554,49 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildCartItem(Map<String, dynamic> item) {
     return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.asset(
-          item['image'],
-          width: 40,
-          height: 40,
-          fit: BoxFit.cover,
+      contentPadding: const EdgeInsets.symmetric(vertical: 4),
+      leading: Container(
+        width: 45,
+        height: 45,
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(8),
         ),
+        child: Icon(Icons.local_mall_outlined, color: Colors.blue.shade700),
       ),
       title: Text(
         item['name'],
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
       ),
-      subtitle: Text("Rp ${item['price'] * item['qty']}"),
+      subtitle: Text("Rp ${(item['price'] as num) * item['qty']}"),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: const Icon(Icons.remove_circle_outline, size: 20),
+            icon: const Icon(
+              Icons.remove_circle_outline,
+              size: 20,
+              color: Colors.redAccent,
+            ),
             onPressed:
-                () => setState(
-                  () =>
-                      item['qty'] > 1 ? item['qty']-- : cartItems.remove(item),
-                ),
+                () => setState(() {
+                  if (item['qty'] > 1) {
+                    item['qty']--;
+                  } else {
+                    cartItems.remove(item);
+                  }
+                }),
           ),
-          Text("${item['qty']}"),
+          Text(
+            "${item['qty']}",
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
           IconButton(
-            icon: const Icon(Icons.add_circle_outline, size: 20),
+            icon: const Icon(
+              Icons.add_circle_outline,
+              size: 20,
+              color: Colors.green,
+            ),
             onPressed: () => setState(() => item['qty']++),
           ),
         ],
@@ -513,7 +610,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
       child: Column(
         children: [
           _summaryRow("Sub Total", "Rp $subTotal"),
-          _summaryRow("Pajak 12%", "Rp $pajak"),
+          _summaryRow("Pajak 12%", "Rp 0"),
           const Divider(),
           _summaryRow("Total", "Rp $total", isBold: true),
           const SizedBox(height: 16),

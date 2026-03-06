@@ -17,9 +17,13 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   DateTime _now = DateTime.now();
   late Timer _timer;
+
   List<dynamic> _products = [];
   bool _isLoadingProducts = false;
   String? _productsError;
+
+  int _totalDiskon = 0;
+  int _totalPajak = 0;
 
   @override
   void initState() {
@@ -27,7 +31,10 @@ class _DashboardPageState extends State<DashboardPage> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) setState(() => _now = DateTime.now());
     });
-    _fetchProducts();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchDashboardData();
+    });
   }
 
   @override
@@ -36,7 +43,7 @@ class _DashboardPageState extends State<DashboardPage> {
     super.dispose();
   }
 
-  Future<void> _fetchProducts() async {
+  Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
     final tenantId = authProv.tenantId;
 
@@ -53,19 +60,37 @@ class _DashboardPageState extends State<DashboardPage> {
     });
 
     try {
-      final response = await authProv.authenticatedGet(
-        '/api/products?tenantId=${authProv.tenantId}',
-      );
+      final responses = await Future.wait([
+        authProv.authenticatedGet('/api/products?tenantId=$tenantId'),
+        authProv.authenticatedGet('/api/dashboard/stats?tenantId=$tenantId'),
+      ]);
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+      final prodRes = responses[0];
+      final statsRes = responses[1];
+
+      if (statsRes.statusCode == 200) {
+        final statsData = json.decode(statsRes.body);
+        if (statsData['success'] == true && statsData['data'] != null) {
+          final data = statsData['data'];
+          setState(() {
+            _totalDiskon =
+                (num.tryParse(data['totalDiskon']?.toString() ?? '0') ?? 0)
+                    .round();
+            _totalPajak =
+                (num.tryParse(data['totalPajak']?.toString() ?? '0') ?? 0)
+                    .round();
+          });
+        }
+      }
+
+      if (prodRes.statusCode == 200) {
+        final prodData = json.decode(prodRes.body);
         setState(() {
-          // Extract products from nested structure: response.data.data
-          if (data is Map &&
-              data['success'] == true &&
-              data['data'] is Map &&
-              data['data']['data'] is List) {
-            _products = data['data']['data'];
+          if (prodData is Map &&
+              prodData['success'] == true &&
+              prodData['data'] is Map &&
+              prodData['data']['data'] is List) {
+            _products = prodData['data']['data'];
           } else {
             _products = [];
           }
@@ -73,7 +98,7 @@ class _DashboardPageState extends State<DashboardPage> {
         });
       } else {
         setState(() {
-          _productsError = 'Failed to load products: ${response.statusCode}';
+          _productsError = 'Failed to load products: ${prodRes.statusCode}';
           _isLoadingProducts = false;
         });
       }
@@ -89,8 +114,15 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     final shiftProv = context.watch<ShiftProvider>();
     final authProv = context.watch<AuthProvider>();
+
     String formattedTime = DateFormat('HH.mm.ss').format(_now);
     String formattedDate = DateFormat('EEE, d MMMM yyyy', 'id_ID').format(_now);
+
+    final formatCurrency = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    );
 
     double screenWidth = MediaQuery.of(context).size.width;
     bool isMobile = screenWidth < 600;
@@ -142,7 +174,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       ],
                     ),
           ),
-          // User Info Section with outletId and tenantId
+
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -174,6 +206,7 @@ class _DashboardPageState extends State<DashboardPage> {
               ],
             ),
           ),
+
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
@@ -191,15 +224,15 @@ class _DashboardPageState extends State<DashboardPage> {
                     alignment: WrapAlignment.start,
                     children: [
                       _buildStatCard(
-                        "Diskon diberikan",
-                        "Rp 5500",
+                        "Total Diskon",
+                        formatCurrency.format(_totalDiskon),
                         Icons.sell_outlined,
                         isMobile,
                         screenWidth,
                       ),
                       _buildStatCard(
                         "Total Pajak",
-                        "Rp 0",
+                        formatCurrency.format(_totalPajak),
                         Icons.account_balance_wallet_outlined,
                         isMobile,
                         screenWidth,
@@ -328,6 +361,12 @@ class _DashboardPageState extends State<DashboardPage> {
       );
     }
 
+    final formatCurrency = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    );
+
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -335,38 +374,81 @@ class _DashboardPageState extends State<DashboardPage> {
       itemBuilder: (context, index) {
         final product = _products[index];
         final categoryName = product['category']?['nama'] ?? 'Uncategorized';
-        final hargaJual = product['hargaJual'] ?? '0';
         final stock = product['stock'] ?? 0;
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
+        double hargaDouble =
+            double.tryParse(product['hargaJual']?.toString() ?? '0') ?? 0.0;
+        String formattedPrice = formatCurrency.format(hargaDouble);
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.02),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
           child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: Colors.blue.shade100,
-              child: Icon(Icons.inventory_2, color: Colors.blue.shade700),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
+            leading: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.inventory_2_outlined,
+                color: Colors.blue.shade700,
+              ),
             ),
             title: Text(
               product['nama'] ?? 'Unnamed Product',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
             ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Rp $hargaJual',
-                  style: TextStyle(
-                    color: Colors.green.shade700,
-                    fontWeight: FontWeight.w600,
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    formattedPrice,
+                    style: const TextStyle(
+                      color: Color(0xFF1976D2),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
                   ),
-                ),
-                Text(
-                  'Stock: $stock | $categoryName',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-              ],
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Stok: $stock  •  $categoryName',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            trailing: Icon(Icons.chevron_right, color: Colors.grey.shade400),
-            isThreeLine: true,
           ),
         );
       },
@@ -388,7 +470,14 @@ class _DashboardPageState extends State<DashboardPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -404,18 +493,20 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
               ),
-              Icon(icon, size: 18, color: Colors.grey[400]),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(icon, size: 16, color: Colors.blue.shade700),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Text(
             value,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title.toLowerCase(),
-            style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ],
       ),
