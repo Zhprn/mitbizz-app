@@ -81,18 +81,18 @@ class AuthLayout extends StatelessWidget {
 
                 if (width >= 1024)
                   Positioned(
-                    left: 60,
+                    left: 40,
                     top: 0,
                     bottom: 0,
                     child: const Center(
                       child: SizedBox(
-                        width: 600,
+                        width: 450,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "Sistem Kasir Multi Cabang\nyang Lebih Terkontrol",
+                              "Sistem Kasir Multi Cabang yang Lebih Terkontrol",
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 32,
