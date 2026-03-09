@@ -125,7 +125,7 @@ class AuthLayout extends StatelessWidget {
                       width: width < 768 ? double.infinity : 480,
                       constraints: const BoxConstraints(
                         maxWidth: 500,
-                        maxHeight: 550,
+                        maxHeight: 650,
                       ),
                       padding: const EdgeInsets.all(40),
                       decoration: BoxDecoration(

@@ -51,7 +51,7 @@ class _LoginPageState extends State<LoginPage> {
                   "Masuk ke Mitbiz POS",
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 9),
 
                 const Text(
                   "Kelola transaksi, stok, dan laporan dalam satu sistem terintegrasi.",
