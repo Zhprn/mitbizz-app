@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
-import '../../../core/widgets/custom_app_bar.dart';
 import 'package:provider/provider.dart';
+import '../../../core/widgets/custom_app_bar.dart';
 import '../../../core/providers/auth_provider.dart';
 
 class RiwayatTransaksiPage extends StatefulWidget {
@@ -14,13 +14,23 @@ class RiwayatTransaksiPage extends StatefulWidget {
 
 class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
   List<dynamic> transactionData = [];
+  List<dynamic> filteredData = [];
   bool isLoading = true;
   String? errorMessage;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    fetchTransactions();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      fetchTransactions();
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> fetchTransactions() async {
@@ -33,29 +43,28 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
 
     try {
       final authProv = context.read<AuthProvider>();
-
       final response = await authProv.authenticatedGet('/api/orders');
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> result = json.decode(response.body);
-
         if (mounted) {
           setState(() {
             transactionData = result['data']['data'] ?? [];
+            filteredData = transactionData;
             isLoading = false;
           });
         }
       } else if (response.statusCode == 401) {
         if (mounted) {
           setState(() {
-            errorMessage = "Sesi berakhir. Silakan login kembali.";
+            errorMessage = "Sesi telah berakhir. Silakan login kembali.";
             isLoading = false;
           });
         }
       } else {
         if (mounted) {
           setState(() {
-            errorMessage = "Gagal mengambil data (${response.statusCode})";
+            errorMessage = "Gagal memuat data (${response.statusCode})";
             isLoading = false;
           });
         }
@@ -63,11 +72,22 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          errorMessage = "Terjadi kesalahan: $e";
+          errorMessage = "Terjadi kesalahan koneksi: $e";
           isLoading = false;
         });
       }
     }
+  }
+
+  void _filterSearch(String query) {
+    setState(() {
+      filteredData =
+          transactionData.where((item) {
+            final invoice = item['orderNumber'].toString().toLowerCase();
+            final searchLower = query.toLowerCase();
+            return invoice.contains(searchLower);
+          }).toList();
+    });
   }
 
   String formatCurrency(dynamic amount) {
@@ -86,6 +106,13 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     } catch (e) {
       return dateStr;
     }
+  }
+
+  String truncateInvoice(String text) {
+    if (text.length <= 15) {
+      return text;
+    }
+    return '${text.substring(0, 15)}...';
   }
 
   @override
@@ -124,20 +151,31 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
                         ),
                       ),
                       _buildSearchField(isMobile),
-
                       if (isLoading)
                         const Padding(
-                          padding: EdgeInsets.all(40.0),
+                          padding: EdgeInsets.all(60.0),
                           child: Center(child: CircularProgressIndicator()),
                         )
                       else if (errorMessage != null)
                         Padding(
-                          padding: const EdgeInsets.all(40.0),
-                          child: Center(child: Text(errorMessage!)),
+                          padding: const EdgeInsets.all(60.0),
+                          child: Center(
+                            child: Column(
+                              children: [
+                                Text(
+                                  errorMessage!,
+                                  style: const TextStyle(color: Colors.red),
+                                ),
+                                TextButton(
+                                  onPressed: fetchTransactions,
+                                  child: const Text("Coba Lagi"),
+                                ),
+                              ],
+                            ),
+                          ),
                         )
                       else
                         _buildTable(context),
-
                       const SizedBox(height: 20),
                     ],
                   ),
@@ -157,6 +195,8 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
         width: isMobile ? double.infinity : 400,
         height: 40,
         child: TextField(
+          controller: _searchController,
+          onChanged: _filterSearch,
           decoration: InputDecoration(
             hintText: "Cari nomor invoice...",
             hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
@@ -165,6 +205,16 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
               color: Colors.grey.shade400,
               size: 20,
             ),
+            suffixIcon:
+                _searchController.text.isNotEmpty
+                    ? IconButton(
+                      icon: const Icon(Icons.clear, size: 16),
+                      onPressed: () {
+                        _searchController.clear();
+                        _filterSearch('');
+                      },
+                    )
+                    : null,
             contentPadding: EdgeInsets.zero,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
@@ -225,53 +275,61 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
                     ),
                   ),
                 ),
-                ...transactionData.map((data) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 12,
-                      horizontal: 32,
+                if (filteredData.isEmpty)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20.0),
+                      child: Text("Data tidak ditemukan"),
                     ),
-                    child: Row(
-                      children: [
-                        _buildFlexTextCell(
-                          data['orderNumber'] ?? '-',
-                          3,
-                          false,
-                        ),
-                        _buildFlexTextCell(
-                          formatDate(data['createdAt']),
-                          2,
-                          false,
-                        ),
-                        _buildFlexTextCell("-", 1, false),
-                        _buildFlexTextCell(
-                          formatCurrency(data['subtotal']),
-                          2,
-                          false,
-                        ),
-                        _buildFlexTextCell(
-                          formatCurrency(data['jumlahDiskon']),
-                          1,
-                          false,
-                        ),
-                        _buildFlexTextCell(
-                          formatCurrency(data['jumlahPajak']),
-                          2,
-                          false,
-                        ),
-                        _buildFlexTextCell(
-                          formatCurrency(data['total']),
-                          2,
-                          false,
-                        ),
-                        _buildPaymentBadge(
-                          data['paymentMethod']['nama'] ?? '-',
-                        ),
-                        _buildActionCell(context, data),
-                      ],
-                    ),
-                  );
-                }).toList(),
+                  )
+                else
+                  ...filteredData.map((data) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 32,
+                      ),
+                      child: Row(
+                        children: [
+                          _buildFlexTextCell(
+                            truncateInvoice(data['orderNumber'] ?? '-'),
+                            3,
+                            false,
+                          ),
+                          _buildFlexTextCell(
+                            formatDate(data['createdAt']),
+                            2,
+                            false,
+                          ),
+                          _buildFlexTextCell("-", 1, false),
+                          _buildFlexTextCell(
+                            formatCurrency(data['subtotal']),
+                            2,
+                            false,
+                          ),
+                          _buildFlexTextCell(
+                            formatCurrency(data['jumlahDiskon']),
+                            1,
+                            false,
+                          ),
+                          _buildFlexTextCell(
+                            formatCurrency(data['jumlahPajak']),
+                            2,
+                            false,
+                          ),
+                          _buildFlexTextCell(
+                            formatCurrency(data['total']),
+                            2,
+                            false,
+                          ),
+                          _buildPaymentBadge(
+                            data['paymentMethod']['nama'] ?? '-',
+                          ),
+                          _buildActionCell(context, data),
+                        ],
+                      ),
+                    );
+                  }).toList(),
               ],
             ),
           ),

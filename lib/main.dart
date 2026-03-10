@@ -17,7 +17,6 @@ import 'features/transaksi/pages/transaksi_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
-  // Backend API URL (Google Cloud Run)
   await BetterAuth.init(
     baseUrl: Uri(
       scheme: "https",
@@ -28,7 +27,6 @@ void main() async {
   runApp(
     DevicePreview(
       enabled: !kReleaseMode,
-      // enabled: false,
       builder:
           (context) => MultiProvider(
             providers: [
@@ -54,9 +52,28 @@ class MyApp extends StatelessWidget {
       builder: DevicePreview.appBuilder,
       theme: ThemeData(
         useMaterial3: true,
-        primarySwatch: Colors.blue,
         fontFamily: 'Plus Jakarta Sans',
         scaffoldBackgroundColor: Colors.white,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF0061C1),
+          primary: const Color(0xFF0061C1),
+          surface: Colors.white,
+        ),
+        textSelectionTheme: const TextSelectionThemeData(
+          cursorColor: Color(0xFF0061C1),
+          selectionColor: Color(0xFFD1E4FF),
+          selectionHandleColor: Color(0xFF0061C1),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFF0061C1)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
+          ),
+        ),
       ),
 
       initialRoute: AppRoutes.login,
