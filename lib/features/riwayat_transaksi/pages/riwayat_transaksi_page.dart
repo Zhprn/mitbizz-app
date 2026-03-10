@@ -43,7 +43,11 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
 
     try {
       final authProv = context.read<AuthProvider>();
-      final response = await authProv.authenticatedGet('/api/orders');
+      final tenantId = authProv.tenantId;
+
+      final response = await authProv.authenticatedGet(
+        '/api/orders?tenantId=$tenantId',
+      );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> result = json.decode(response.body);
