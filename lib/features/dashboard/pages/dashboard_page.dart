@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
@@ -40,14 +41,28 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
+    final shiftProv = context.read<ShiftProvider>();
     final tenantId = authProv.tenantId;
-    if (tenantId == null) return;
+    final outletId = authProv.outletId;
+
+    if (tenantId == null || outletId == null) return;
+
     setState(() => _isLoadingProducts = true);
     try {
       final responses = await Future.wait([
         authProv.authenticatedGet('/api/products?tenantId=$tenantId'),
         authProv.authenticatedGet('/api/dashboard/stats?tenantId=$tenantId'),
+        http.get(
+          Uri.parse(
+            'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts/open?outletId=$outletId',
+          ),
+          headers: {
+            'Content-Type': 'application/json',
+            'Cookie': authProv.sessionCookie ?? '',
+          },
+        ),
       ]);
+
       if (responses[1].statusCode == 200) {
         final statsData = json.decode(responses[1].body);
         if (statsData['success'] == true && statsData['data'] != null) {
@@ -62,9 +77,30 @@ class _DashboardPageState extends State<DashboardPage> {
           });
         }
       }
+
       if (responses[0].statusCode == 200) {
         final prodData = json.decode(responses[0].body);
         setState(() => _products = prodData['data']?['data'] ?? []);
+      }
+
+      if (responses[2].statusCode == 200) {
+        final shiftData = json.decode(responses[2].body);
+        final data = shiftData['data'];
+
+        if (data != null && data['status'] == 'buka') {
+          String? parsedStartTime;
+          if (data['openedAt'] != null) {
+            final dt = DateTime.parse(data['openedAt']).toLocal();
+            parsedStartTime = DateFormat('HH.mm.ss').format(dt);
+          }
+          shiftProv.setShiftStatus(
+            true,
+            shiftId: data['id']?.toString(),
+            startTime: parsedStartTime,
+          );
+        } else {
+          shiftProv.setShiftStatus(false);
+        }
       }
     } catch (e) {
       debugPrint("Error: $e");
@@ -224,7 +260,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                     Text(
                       shiftProv.isShiftActive
-                          ? "Mulai: ${shiftProv.startTime}"
+                          ? "Mulai: ${shiftProv.startTime ?? '-'}"
                           : "Silakan mulai shift",
                       style: TextStyle(color: Colors.grey[600], fontSize: 13),
                     ),
@@ -335,8 +371,9 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildProdList(NumberFormat currency) {
-    if (_isLoadingProducts)
+    if (_isLoadingProducts) {
       return const Center(child: CircularProgressIndicator());
+    }
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),

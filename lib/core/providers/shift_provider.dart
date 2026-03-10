@@ -14,6 +14,13 @@ class ShiftProvider extends ChangeNotifier {
   String? get startTime => _startTime;
   bool get isProcessing => _isProcessing;
 
+  void setShiftStatus(bool isActive, {String? shiftId, String? startTime}) {
+    _isShiftActive = isActive;
+    if (shiftId != null) _activeShiftId = shiftId;
+    if (startTime != null) _startTime = startTime;
+    notifyListeners();
+  }
+
   Future<bool> startShift(AuthProvider auth) async {
     if (auth.tenantId == null || auth.outletId == null) return false;
     _isProcessing = true;
