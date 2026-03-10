@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
@@ -37,13 +38,10 @@ class _TransaksiPageState extends State<TransaksiPage> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
   List<Map<String, dynamic>> cartItems = [];
-
   List<Map<String, dynamic>> categories = [];
   List<Map<String, dynamic>> products = [];
-
   bool _isLoading = true;
   String? _errorMessage;
-
   int currentPage = 1;
   int totalPages = 1;
 
@@ -65,7 +63,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
   Future<void> _fetchData({int page = 1}) async {
     final authProv = context.read<AuthProvider>();
     final tenantId = authProv.tenantId;
-
     if (tenantId == null) {
       setState(() {
         _errorMessage = 'Tenant ID tidak tersedia';
@@ -73,17 +70,14 @@ class _TransaksiPageState extends State<TransaksiPage> {
       });
       return;
     }
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-
     try {
       String urlCategory = '/api/categories?tenantId=$tenantId';
       String urlProduct =
           '/api/products?tenantId=$tenantId&page=$page&limit=10';
-
       if (selectedCategory != "Semua") {
         final cat = categories.firstWhere(
           (c) => c['name'] == selectedCategory,
@@ -94,7 +88,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
           urlProduct += '&categoryId=$catId';
         }
       }
-
       if (searchQuery.isNotEmpty) {
         String formattedSearch = searchQuery
             .split(' ')
@@ -103,44 +96,34 @@ class _TransaksiPageState extends State<TransaksiPage> {
               return word[0].toUpperCase() + word.substring(1).toLowerCase();
             })
             .join(' ');
-
         urlProduct += '&search=$formattedSearch';
       }
-
       final responses = await Future.wait([
         authProv.authenticatedGet(urlCategory),
         authProv.authenticatedGet(urlProduct),
       ]);
-
       final catRes = responses[0];
       final prodRes = responses[1];
-
       if (catRes.statusCode == 200 && prodRes.statusCode == 200) {
         final catJson = json.decode(catRes.body);
         final prodJson = json.decode(prodRes.body);
-
         List rawCategories =
             (catJson['data'] is Map && catJson['data']['data'] != null)
                 ? catJson['data']['data']
                 : [];
-
         List rawProducts =
             (prodJson['data'] is Map && prodJson['data']['data'] != null)
                 ? prodJson['data']['data']
                 : [];
-
         int metaTotalPages = 1;
         if (prodJson['data'] is Map && prodJson['data']['meta'] != null) {
           metaTotalPages = prodJson['data']['meta']['totalPages'] ?? 1;
         }
-
         List<Map<String, dynamic>> formattedProducts = [];
         for (var p in rawProducts) {
           double priceDouble =
               double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0.0;
-
           int stock = p['stock'] ?? 0;
-
           formattedProducts.add({
             "id": p['id'],
             "name": p['nama'] ?? 'Unnamed Product',
@@ -150,24 +133,19 @@ class _TransaksiPageState extends State<TransaksiPage> {
             "stock": stock,
           });
         }
-
         int totalSemua = 0;
         List<Map<String, dynamic>> tempCategories = [];
-
         for (var c in rawCategories) {
           String catId = c['id'] ?? '';
           String catName = c['nama'] ?? 'Uncategorized';
           int count = int.tryParse(c['productsCount']?.toString() ?? '0') ?? 0;
           totalSemua += count;
-
           tempCategories.add({"id": catId, "name": catName, "count": count});
         }
-
         List<Map<String, dynamic>> formattedCategories = [
           {"id": "", "name": "Semua", "count": totalSemua},
         ];
         formattedCategories.addAll(tempCategories);
-
         setState(() {
           if (categories.isEmpty || selectedCategory == "Semua") {
             categories = formattedCategories;
@@ -199,11 +177,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
       );
       return;
     }
-
     setState(() {
-      int index = cartItems.indexWhere(
-        (item) => item['name'] == product['name'],
-      );
+      int index = cartItems.indexWhere((item) => item['id'] == product['id']);
       if (index != -1) {
         cartItems[index]['qty']++;
       } else {
@@ -218,6 +193,22 @@ class _TransaksiPageState extends State<TransaksiPage> {
   );
   int get diskon => 0;
   int get total => (subTotal - diskon);
+
+  void _showCheckoutModal() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => CheckoutModal(
+            cartItems: cartItems,
+            subTotal: subTotal,
+            total: total,
+            onSuccess: () {
+              setState(() => cartItems.clear());
+              _fetchData(page: currentPage);
+            },
+          ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -274,18 +265,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
       ),
     );
 
-    Widget cartSection = Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius:
-            isMobile
-                ? const BorderRadius.vertical(top: Radius.circular(20))
-                : BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: _buildCartSection(isShiftActive, isMobile),
-    );
-
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: const CustomAppBar(activeMenu: "Transaksi"),
@@ -294,38 +273,37 @@ class _TransaksiPageState extends State<TransaksiPage> {
               ? Column(
                 children: [
                   Expanded(child: mainContent),
-                  GestureDetector(
-                    onTap: () {
-                      if (cartItems.isNotEmpty) {
-                        _showMobileCart(context, isShiftActive);
-                      }
-                    },
-                    child: Container(
+                  if (cartItems.isNotEmpty)
+                    Container(
                       padding: const EdgeInsets.all(16),
                       color: Colors.white,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            "Total (${cartItems.length} Item)",
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                "Total (${cartItems.length} Item)",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                "Rp $total",
+                                style: const TextStyle(
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            "Rp $total",
-                            style: const TextStyle(
-                              color: Colors.blue,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
-                          ),
+                          const SizedBox(height: 12),
+                          _buildCheckoutButton(isShiftActive),
                         ],
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: _buildCheckoutButton(isShiftActive),
-                  ),
                 ],
               )
               : Row(
@@ -335,28 +313,18 @@ class _TransaksiPageState extends State<TransaksiPage> {
                     flex: 3,
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(0, 24, 24, 24),
-                      child: cartSection,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: _buildCartSection(isShiftActive),
+                      ),
                     ),
                   ),
                 ],
               ),
-    );
-  }
-
-  void _showMobileCart(BuildContext context, bool isShiftActive) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder:
-          (context) => Container(
-            height: MediaQuery.of(context).size.height * 0.8,
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: _buildCartSection(isShiftActive, true),
-          ),
     );
   }
 
@@ -397,12 +365,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
         controller: _searchController,
         onChanged: (value) {
           if (_debounce?.isActive ?? false) _debounce!.cancel();
-          setState(() {
-            searchQuery = value;
-          });
-          _debounce = Timer(const Duration(milliseconds: 500), () {
-            _fetchData(page: 1);
-          });
+          setState(() => searchQuery = value);
+          _debounce = Timer(
+            const Duration(milliseconds: 500),
+            () => _fetchData(page: 1),
+          );
         },
         decoration: InputDecoration(
           hintText: "Cari nama produk...",
@@ -412,11 +379,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   ? IconButton(
                     icon: const Icon(Icons.clear, size: 18),
                     onPressed: () {
-                      if (_debounce?.isActive ?? false) _debounce!.cancel();
                       _searchController.clear();
-                      setState(() {
-                        searchQuery = "";
-                      });
+                      setState(() => searchQuery = "");
                       _fetchData(page: 1);
                     },
                   )
@@ -445,9 +409,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
     return GestureDetector(
       onTap: () {
         if (!isActive) {
-          setState(() {
-            selectedCategory = name;
-          });
+          setState(() => selectedCategory = name);
           _fetchData(page: 1);
         }
       },
@@ -494,13 +456,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildProductCard(Map<String, dynamic> product) {
     bool isAvailable = product['isAvailable'] == true;
-
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _addToCart(product),
         borderRadius: BorderRadius.circular(15),
-        splashColor: Colors.black.withOpacity(0.1),
         child: Opacity(
           opacity: isAvailable ? 1.0 : 0.6,
           child: Container(
@@ -513,69 +473,19 @@ class _TransaksiPageState extends State<TransaksiPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFF1F3F4),
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(15),
-                          ),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.inventory_2_outlined,
-                            size: 50,
-                            color: Colors.grey,
-                          ),
-                        ),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF1F3F4),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(15),
                       ),
-                      Positioned(
-                        top: 8,
-                        left: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black12,
-                                blurRadius: 2,
-                                offset: Offset(0, 1),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color:
-                                      isAvailable ? Colors.green : Colors.red,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                isAvailable ? "Available" : "Unavailable",
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
+                    child: const Icon(
+                      Icons.inventory_2_outlined,
+                      size: 50,
+                      color: Colors.grey,
+                    ),
                   ),
                 ),
                 Padding(
@@ -621,7 +531,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildPagination() {
     if (totalPages <= 1) return const SizedBox.shrink();
-
     return Padding(
       padding: const EdgeInsets.only(top: 16.0, bottom: 8.0),
       child: Row(
@@ -633,28 +542,24 @@ class _TransaksiPageState extends State<TransaksiPage> {
                 currentPage > 1
                     ? () => _fetchData(page: currentPage - 1)
                     : null,
-            color: currentPage > 1 ? Colors.blue : Colors.grey,
           ),
-          const SizedBox(width: 8),
           Text(
             "Page $currentPage of $totalPages",
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
-          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.chevron_right),
             onPressed:
                 currentPage < totalPages
                     ? () => _fetchData(page: currentPage + 1)
                     : null,
-            color: currentPage < totalPages ? Colors.blue : Colors.grey,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildCartSection(bool isShiftActive, bool isMobile) {
+  Widget _buildCartSection(bool isShiftActive) {
     return Column(
       children: [
         Padding(
@@ -689,7 +594,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                         (context, index) => _buildCartItem(cartItems[index]),
                   ),
         ),
-        if (!isMobile) _buildCheckoutArea(isShiftActive),
+        _buildCheckoutArea(isShiftActive),
       ],
     );
   }
@@ -697,15 +602,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
   Widget _buildCartItem(Map<String, dynamic> item) {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(vertical: 4),
-      leading: Container(
-        width: 45,
-        height: 45,
-        decoration: BoxDecoration(
-          color: Colors.blue.shade50,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(Icons.local_mall_outlined, color: Colors.blue.shade700),
-      ),
       title: Text(
         item['name'],
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
@@ -720,14 +616,15 @@ class _TransaksiPageState extends State<TransaksiPage> {
               size: 20,
               color: Colors.redAccent,
             ),
-            onPressed:
-                () => setState(() {
-                  if (item['qty'] > 1) {
-                    item['qty']--;
-                  } else {
-                    cartItems.remove(item);
-                  }
-                }),
+            onPressed: () {
+              setState(() {
+                if (item['qty'] > 1) {
+                  item['qty']--;
+                } else {
+                  cartItems.remove(item);
+                }
+              });
+            },
           ),
           Text(
             "${item['qty']}",
@@ -752,7 +649,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
       child: Column(
         children: [
           _summaryRow("Sub Total", "Rp $subTotal"),
-          _summaryRow("Pajak 12%", "Rp 0"),
           const Divider(),
           _summaryRow("Total", "Rp $total", isBold: true),
           const SizedBox(height: 16),
@@ -767,13 +663,14 @@ class _TransaksiPageState extends State<TransaksiPage> {
       width: double.infinity,
       height: 48,
       child: ElevatedButton(
-        onPressed: isShiftActive && cartItems.isNotEmpty ? () {} : null,
+        onPressed:
+            isShiftActive && cartItems.isNotEmpty ? _showCheckoutModal : null,
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF1976D2),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         child: const Text(
-          "Proses Pembayaran",
+          "Checkout",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
@@ -797,6 +694,349 @@ class _TransaksiPageState extends State<TransaksiPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class CheckoutModal extends StatefulWidget {
+  final List<Map<String, dynamic>> cartItems;
+  final int subTotal;
+  final int total;
+  final VoidCallback onSuccess;
+
+  const CheckoutModal({
+    super.key,
+    required this.cartItems,
+    required this.subTotal,
+    required this.total,
+    required this.onSuccess,
+  });
+
+  @override
+  State<CheckoutModal> createState() => _CheckoutModalState();
+}
+
+class _CheckoutModalState extends State<CheckoutModal> {
+  List<dynamic> paymentMethods = [];
+  String? selectedPaymentMethodId;
+  final TextEditingController _bayarController = TextEditingController();
+  final TextEditingController _notesController = TextEditingController();
+  final TextEditingController _antrianController = TextEditingController();
+  bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPaymentMethods();
+  }
+
+  Future<void> _fetchPaymentMethods() async {
+    final authProv = context.read<AuthProvider>();
+    try {
+      final res = await authProv.authenticatedGet(
+        '/api/payment-methods?tenantId=${authProv.tenantId}',
+      );
+
+      if (res.statusCode == 200) {
+        final jsonRes = json.decode(res.body);
+
+        if (jsonRes['success'] == true &&
+            jsonRes['data'] != null &&
+            jsonRes['data']['data'] != null) {
+          setState(() {
+            paymentMethods = jsonRes['data']['data'];
+
+            if (paymentMethods.isNotEmpty) {
+              selectedPaymentMethodId = paymentMethods[0]['id'].toString();
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching payment methods: $e");
+    }
+  }
+
+  Future<void> _processCheckout() async {
+    if (selectedPaymentMethodId == null) return;
+    setState(() => _isSubmitting = true);
+    final authProv = context.read<AuthProvider>();
+
+    final body = {
+      "tenantId": authProv.tenantId,
+      "outletId": authProv.outletId,
+      "status": "complete",
+      "subtotal": widget.subTotal.toString(),
+      "jumlahPajak": "0",
+      "jumlahDiskon": "0",
+      "diskonBreakdown": [],
+      "paymentMethodId": selectedPaymentMethodId,
+      "total": widget.total.toString(),
+      "notes": _notesController.text,
+      "nomorAntrian": _antrianController.text,
+      "completedAt": DateTime.now().toIso8601String(),
+      "items":
+          widget.cartItems
+              .map(
+                (item) => {
+                  "productId": item['id'],
+                  "quantity": item['qty'],
+                  "hargaSatuan": item['price'].toString(),
+                  "jumlahDiskon": "0",
+                  "total": (item['price'] * item['qty']).toString(),
+                },
+              )
+              .toList(),
+    };
+
+    try {
+      final res = await authProv.authenticatedPost('/api/orders', body);
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        Navigator.pop(context);
+        widget.onSuccess();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Transaksi Berhasil!")));
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Gagal: ${res.body}")));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 600,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Checkout",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 1,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade200),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Ringkasan Pesanan",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        ...widget.cartItems.map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  "${item['name']} x${item['qty']}",
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                Text(
+                                  "Rp ${item['price'] * item['qty']}",
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const Divider(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Total",
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              "Rp ${widget.total}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  flex: 1,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "Metode Pembayaran",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      DropdownButtonFormField<String>(
+                        value: selectedPaymentMethodId,
+                        items:
+                            paymentMethods
+                                .map(
+                                  (m) => DropdownMenuItem<String>(
+                                    value: m['id'].toString(),
+                                    child: Text(m['nama']),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged:
+                            (val) =>
+                                setState(() => selectedPaymentMethodId = val),
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        "Jumlah Bayar",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      TextField(
+                        controller: _bayarController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(hintText: "0"),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children:
+                            [5000, 10000, 20000, 50000, 100000]
+                                .map(
+                                  (nominal) => InkWell(
+                                    onTap:
+                                        () =>
+                                            _bayarController.text =
+                                                nominal.toString(),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        "Rp ${NumberFormat('#,###').format(nominal)}",
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        "Nomor Antrian",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      TextField(
+                        controller: _antrianController,
+                        decoration: const InputDecoration(
+                          hintText: "Masukkan nomor antrian",
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        "Catatan (Opsional)",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      TextField(
+                        controller: _notesController,
+                        decoration: const InputDecoration(
+                          hintText: "Tambahkan catatan...",
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Batal"),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: _isSubmitting ? null : _processCheckout,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1976D2),
+                  ),
+                  child:
+                      _isSubmitting
+                          ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                          : const Text(
+                            "Simpan Pesanan",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

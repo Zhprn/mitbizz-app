@@ -17,6 +17,7 @@ import 'features/transaksi/pages/transaksi_page.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
+
   await BetterAuth.init(
     baseUrl: Uri(
       scheme: "https",
@@ -44,12 +45,17 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Gunakan context dari builder MaterialApp untuk DevicePreview agar tidak terjadi rebuild loop
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'POS App',
+      // PENTING: DevicePreview membutuhkan pengaturan ini agar tidak konflik dengan MediaQuery
       useInheritedMediaQuery: true,
       locale: DevicePreview.locale(context),
-      builder: DevicePreview.appBuilder,
+      builder: (context, child) {
+        // Gabungkan DevicePreview builder dengan pembungkus navigasi Anda jika ada
+        return DevicePreview.appBuilder(context, child);
+      },
       theme: ThemeData(
         useMaterial3: true,
         fontFamily: 'Plus Jakarta Sans',
@@ -75,7 +81,6 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-
       initialRoute: AppRoutes.login,
       routes: {
         AppRoutes.login: (context) => const LoginPage(),

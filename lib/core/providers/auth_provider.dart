@@ -10,6 +10,9 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
+  final String _baseUrl =
+      'https://backend-pos-508482854424.us-central1.run.app';
+
   User? get user => _user;
   Map<String, dynamic>? get userData => _userData;
   String? get outletId => _userData?['outletId'];
@@ -25,11 +28,8 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _checkSession() async {
     _setLoading(true);
-
     try {
-      // Get raw session data to access custom fields
       final rawSession = await _fetchRawSession();
-
       if (rawSession != null) {
         _userData = rawSession['user'];
         _user = User.fromMap(_userData!);
@@ -37,7 +37,6 @@ class AuthProvider extends ChangeNotifier {
       } else {
         final (sessionData, error) =
             await BetterAuth.instance.client.getSession();
-
         if (error != null) {
           _user = null;
           _userData = null;
@@ -46,16 +45,11 @@ class AuthProvider extends ChangeNotifier {
           final (_, user) = sessionData;
           _user = user;
           _error = null;
-        } else {
-          _user = null;
-          _userData = null;
-          _error = null;
         }
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       _user = null;
       _userData = null;
-      _error = null;
     } finally {
       _setLoading(false);
     }
@@ -67,18 +61,13 @@ class AuthProvider extends ChangeNotifier {
         'Content-Type': 'application/json',
         if (_sessionCookie != null) 'Cookie': _sessionCookie!,
       };
-
       final response = await http.get(
-        Uri.parse(
-          'https://backend-pos-508482854424.us-central1.run.app/api/auth/session',
-        ),
+        Uri.parse('$_baseUrl/api/auth/session'),
         headers: headers,
       );
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data != null && data['user'] != null) {
-          // Update session token from response if available
           final cookies = response.headers['set-cookie'];
           if (cookies != null && _sessionCookie == null) {
             _sessionCookie = _extractAllCookies(cookies);
@@ -86,83 +75,35 @@ class AuthProvider extends ChangeNotifier {
           return data;
         }
       }
-    } catch (e) {
-      // Ignore errors
-    }
+    } catch (e) {}
     return null;
   }
 
   Future<bool> signInWithEmailPassword(String email, String password) async {
     _setLoading(true);
     _error = null;
-
     try {
-      // Make raw HTTP request to see the response body
       final response = await http.post(
-        Uri.parse(
-          'https://backend-pos-508482854424.us-central1.run.app/api/auth/sign-in/email',
-        ),
+        Uri.parse('$_baseUrl/api/auth/sign-in/email'),
         headers: {'Content-Type': 'application/json'},
         body: json.encode({'email': email, 'password': password}),
       );
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data != null && data['user'] != null) {
           _userData = data['user'];
           _user = User.fromMap(_userData!);
-          // Extract session cookie from Set-Cookie header
           final cookies = response.headers['set-cookie'];
-          if (cookies != null) {
-            _sessionCookie = _extractAllCookies(cookies);
-          }
+          if (cookies != null) _sessionCookie = _extractAllCookies(cookies);
           _error = null;
           notifyListeners();
           return true;
         }
       }
-
-      _error = 'Sign in failed: ${response.body}';
-      notifyListeners();
+      _error = 'Sign in failed';
       return false;
-    } catch (e, stackTrace) {
-      _error = 'An unexpected error occurred. Check console for details.';
-      notifyListeners();
-      return false;
-    } finally {
-      _setLoading(false);
-    }
-  }
-
-  Future<bool> signUpWithEmailPassword(
-    String email,
-    String password,
-    String name,
-  ) async {
-    _setLoading(true);
-    _error = null;
-
-    try {
-      final (_, error) = await BetterAuth.instance.client
-          .signUpWithEmailAndPassword(
-            email: email,
-            password: password,
-            name: name,
-          );
-
-      if (error != null) {
-        _error = error.message;
-        notifyListeners();
-        return false;
-      }
-
-      _error = null;
-      notifyListeners();
-
-      return await signInWithEmailPassword(email, password);
-    } catch (e, stackTrace) {
-      _error = 'An unexpected error occurred. Check console for details.';
-      notifyListeners();
+    } catch (e) {
+      _error = 'An unexpected error occurred';
       return false;
     } finally {
       _setLoading(false);
@@ -171,70 +112,53 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> signOut() async {
     _setLoading(true);
-
     try {
-      // Try to call sign-out endpoint manually
       if (_sessionCookie != null) {
-        try {
-          await http.post(
-            Uri.parse(
-              'https://backend-pos-508482854424.us-central1.run.app/api/auth/sign-out',
-            ),
-            headers: {
-              'Content-Type': 'application/json',
-              'Cookie': _sessionCookie!,
-            },
-          );
-        } catch (e) {
-          // Ignore API errors
-        }
+        await http.post(
+          Uri.parse('$_baseUrl/api/auth/sign-out'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Cookie': _sessionCookie!,
+          },
+        );
       }
-
-      // Always clear local session regardless of API response
+    } catch (e) {
+    } finally {
       _user = null;
       _userData = null;
       _sessionCookie = null;
-      _error = null;
-    } catch (e, stackTrace) {
-      _error = 'Failed to sign out. Check console for details.';
-    } finally {
       _setLoading(false);
-      notifyListeners();
     }
   }
 
-  void clearError() {
-    _error = null;
-    notifyListeners();
+  Future<http.Response> authenticatedGet(String endpoint) async {
+    final headers = {
+      'Content-Type': 'application/json',
+      if (_sessionCookie != null) 'Cookie': _sessionCookie!,
+    };
+    return await http.get(Uri.parse('$_baseUrl$endpoint'), headers: headers);
   }
+
+  Future<http.Response> authenticatedPost(
+    String endpoint,
+    Map<String, dynamic> body,
+  ) async {
+    final headers = {
+      'Content-Type': 'application/json',
+      if (_sessionCookie != null) 'Cookie': _sessionCookie!,
+    };
+    return await http.post(
+      Uri.parse('$_baseUrl$endpoint'),
+      headers: headers,
+      body: json.encode(body),
+    );
+  }
+
+  String? _extractAllCookies(String cookies) =>
+      cookies.isNotEmpty ? cookies : null;
 
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
-  }
-
-  String? _extractAllCookies(String cookies) {
-    // Preserve all cookies from the response, not just extract one
-    // The cookies string may contain multiple cookies separated by commas
-    // We need to preserve the full cookie values
-    if (cookies.isNotEmpty) {
-      return cookies;
-    }
-    return null;
-  }
-
-  Future<http.Response> authenticatedGet(String endpoint) async {
-    if (_sessionCookie == null) {
-      throw Exception('No session cookie available');
-    }
-
-    final response = await http.get(
-      Uri.parse(
-        'https://backend-pos-508482854424.us-central1.run.app$endpoint',
-      ),
-      headers: {'Content-Type': 'application/json', 'Cookie': _sessionCookie!},
-    );
-
-    return response;
   }
 }

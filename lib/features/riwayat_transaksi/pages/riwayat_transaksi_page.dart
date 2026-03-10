@@ -102,6 +102,11 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
   String formatDate(String dateStr) {
     try {
       DateTime dt = DateTime.parse(dateStr);
+
+      // 2. Paksa ke waktu lokal (WIB) agar tidak mengikuti offset UTC/Z
+      dt = dt.toLocal();
+
+      // 3. Format menggunakan Intl
       return DateFormat('d MMM yyyy, HH:mm', 'id_ID').format(dt);
     } catch (e) {
       return dateStr;
@@ -477,7 +482,9 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     return Row(
       children: [
         Expanded(child: _infoColumn("Invoice", data['orderNumber'])),
-        Expanded(child: _infoColumn("Tanggal", formatDate(data['createdAt']))),
+        Expanded(
+          child: _infoColumn("Tanggal", formatDate(data['completedAt'])),
+        ),
       ],
     );
   }

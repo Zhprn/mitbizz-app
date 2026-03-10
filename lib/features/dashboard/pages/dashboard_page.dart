@@ -9,7 +9,6 @@ import '../../../core/widgets/custom_app_bar.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
-
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
@@ -17,11 +16,8 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   DateTime _now = DateTime.now();
   late Timer _timer;
-
   List<dynamic> _products = [];
   bool _isLoadingProducts = false;
-  String? _productsError;
-
   int _totalDiskon = 0;
   int _totalPajak = 0;
 
@@ -31,7 +27,6 @@ class _DashboardPageState extends State<DashboardPage> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) setState(() => _now = DateTime.now());
     });
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchDashboardData();
     });
@@ -46,30 +41,15 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
     final tenantId = authProv.tenantId;
-
-    if (tenantId == null) {
-      setState(() {
-        _productsError = 'Tenant ID not available';
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoadingProducts = true;
-      _productsError = null;
-    });
-
+    if (tenantId == null) return;
+    setState(() => _isLoadingProducts = true);
     try {
       final responses = await Future.wait([
         authProv.authenticatedGet('/api/products?tenantId=$tenantId'),
         authProv.authenticatedGet('/api/dashboard/stats?tenantId=$tenantId'),
       ]);
-
-      final prodRes = responses[0];
-      final statsRes = responses[1];
-
-      if (statsRes.statusCode == 200) {
-        final statsData = json.decode(statsRes.body);
+      if (responses[1].statusCode == 200) {
+        final statsData = json.decode(responses[1].body);
         if (statsData['success'] == true && statsData['data'] != null) {
           final data = statsData['data'];
           setState(() {
@@ -82,50 +62,140 @@ class _DashboardPageState extends State<DashboardPage> {
           });
         }
       }
-
-      if (prodRes.statusCode == 200) {
-        final prodData = json.decode(prodRes.body);
-        setState(() {
-          if (prodData is Map &&
-              prodData['success'] == true &&
-              prodData['data'] is Map &&
-              prodData['data']['data'] is List) {
-            _products = prodData['data']['data'];
-          } else {
-            _products = [];
-          }
-          _isLoadingProducts = false;
-        });
-      } else {
-        setState(() {
-          _productsError = 'Failed to load products: ${prodRes.statusCode}';
-          _isLoadingProducts = false;
-        });
+      if (responses[0].statusCode == 200) {
+        final prodData = json.decode(responses[0].body);
+        setState(() => _products = prodData['data']?['data'] ?? []);
       }
     } catch (e) {
-      setState(() {
-        _productsError = 'Error: $e';
-        _isLoadingProducts = false;
-      });
+      debugPrint("Error: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingProducts = false);
     }
+  }
+
+  void _showClosingShiftModal() {
+    final tutupController = TextEditingController();
+    final expectedController = TextEditingController();
+    final selisihController = TextEditingController();
+    final catatanController = TextEditingController();
+
+    void calculate() {
+      double t = double.tryParse(tutupController.text) ?? 0;
+      double e = double.tryParse(expectedController.text) ?? 0;
+      selisihController.text = (t - e).toString();
+    }
+
+    tutupController.addListener(calculate);
+    expectedController.addListener(calculate);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (context) => Consumer<ShiftProvider>(
+            builder:
+                (context, shiftProv, child) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  title: const Text(
+                    "Akhiri Shift",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildField(
+                          "Uang Fisik",
+                          tutupController,
+                          TextInputType.number,
+                        ),
+                        _buildField(
+                          "Expected",
+                          expectedController,
+                          TextInputType.number,
+                        ),
+                        _buildField(
+                          "Selisih",
+                          selisihController,
+                          TextInputType.number,
+                          enabled: false,
+                        ),
+                        _buildField(
+                          "Catatan",
+                          catatanController,
+                          TextInputType.text,
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("Batal"),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed:
+                          shiftProv.isProcessing
+                              ? null
+                              : () async {
+                                final auth = context.read<AuthProvider>();
+                                final success = await shiftProv
+                                    .stopShift(auth, {
+                                      "jumlahTutup": tutupController.text,
+                                      "jumlahExpected": expectedController.text,
+                                      "selisih": selisihController.text,
+                                      "catatan": catatanController.text,
+                                    });
+                                if (success && context.mounted)
+                                  Navigator.pop(context);
+                              },
+                      child: const Text("Akhiri"),
+                    ),
+                  ],
+                ),
+          ),
+    );
+  }
+
+  Widget _buildField(
+    String label,
+    TextEditingController controller,
+    TextInputType type, {
+    bool enabled = true,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
+        keyboardType: type,
+        enabled: enabled,
+        decoration: InputDecoration(
+          labelText: label,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final shiftProv = context.watch<ShiftProvider>();
     final authProv = context.watch<AuthProvider>();
-
-    String formattedTime = DateFormat('HH.mm.ss').format(_now);
-    String formattedDate = DateFormat('EEE, d MMMM yyyy', 'id_ID').format(_now);
-
     final formatCurrency = NumberFormat.currency(
       locale: 'id_ID',
       symbol: 'Rp ',
       decimalDigits: 0,
     );
-
-    double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 600;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -133,119 +203,104 @@ class _DashboardPageState extends State<DashboardPage> {
       body: Column(
         children: [
           Container(
-            width: double.infinity,
-            padding: EdgeInsets.symmetric(
-              horizontal: 24,
-              vertical: isMobile ? 16 : 20,
-            ),
+            padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: Colors.grey.shade300, width: 1),
-                bottom: BorderSide(color: Colors.grey.shade300, width: 1),
-              ),
-            ),
-            child:
-                isMobile
-                    ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildShiftStatus(shiftProv),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            _buildDateTime(formattedTime, formattedDate),
-                            _buildShiftButton(context, shiftProv),
-                          ],
-                        ),
-                      ],
-                    )
-                    : Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _buildShiftStatus(shiftProv),
-                        Row(
-                          children: [
-                            _buildDateTime(formattedTime, formattedDate),
-                            const SizedBox(width: 24),
-                            _buildShiftButton(context, shiftProv),
-                          ],
-                        ),
-                      ],
-                    ),
-          ),
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              border: Border(
-                bottom: BorderSide(color: Colors.grey.shade300, width: 1),
-              ),
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
             ),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(Icons.store_outlined, size: 16, color: Colors.grey[600]),
-                const SizedBox(width: 8),
-                Text(
-                  "Outlet: ${authProv.outletId ?? 'N/A'}",
-                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      shiftProv.isShiftActive
+                          ? "Shift Aktif"
+                          : "Shift Nonaktif",
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      shiftProv.isShiftActive
+                          ? "Mulai: ${shiftProv.startTime}"
+                          : "Silakan mulai shift",
+                      style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 20),
-                Icon(
-                  Icons.business_outlined,
-                  size: 16,
-                  color: Colors.grey[600],
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  "Tenant: ${authProv.tenantId ?? 'N/A'}",
-                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        shiftProv.isShiftActive
+                            ? Colors.red
+                            : const Color(0xFF0061C1),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 0,
+                  ),
+                  onPressed:
+                      shiftProv.isProcessing
+                          ? null
+                          : () async {
+                            if (!shiftProv.isShiftActive) {
+                              await shiftProv.startShift(authProv);
+                            } else {
+                              _showClosingShiftModal();
+                            }
+                          },
+                  icon:
+                      shiftProv.isProcessing
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                          : Icon(
+                            shiftProv.isShiftActive
+                                ? Icons.stop
+                                : Icons.play_arrow,
+                            size: 18,
+                          ),
+                  label: Text(shiftProv.isShiftActive ? "Akhiri" : "Mulai"),
                 ),
               ],
             ),
           ),
-
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    "Statistik Hari Ini",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 20),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    alignment: WrapAlignment.start,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildStatCard(
-                        "Total Diskon",
+                      _buildStat(
                         formatCurrency.format(_totalDiskon),
-                        Icons.sell_outlined,
-                        isMobile,
-                        screenWidth,
+                        "Total Diskon",
+                        Icons.discount_outlined,
                       ),
-                      _buildStatCard(
-                        "Total Pajak",
+                      _buildStat(
                         formatCurrency.format(_totalPajak),
-                        Icons.account_balance_wallet_outlined,
-                        isMobile,
-                        screenWidth,
+                        "Total Pajak",
+                        Icons.account_balance_outlined,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 32),
                   const Text(
-                    "Products",
+                    "Daftar Produk",
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
-                  _buildProductsSection(),
+                  _buildProdList(formatCurrency),
                 ],
               ),
             ),
@@ -255,261 +310,49 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildShiftStatus(ShiftProvider shiftProv) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          shiftProv.isShiftActive ? "Shift Aktif" : "Shift belum dimulai.",
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          shiftProv.isShiftActive
-              ? "Dimulai pada ${shiftProv.startTime}"
-              : "Mulai shift untuk melakukan transaksi.",
-          style: TextStyle(color: Colors.grey[600], fontSize: 13),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDateTime(String time, String date) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          time,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        Text(date, style: TextStyle(color: Colors.grey[600], fontSize: 11)),
-      ],
-    );
-  }
-
-  Widget _buildShiftButton(BuildContext context, ShiftProvider shiftProv) {
-    return SizedBox(
-      height: 40,
-      child: ElevatedButton.icon(
-        onPressed: () => context.read<ShiftProvider>().toggleShift(),
-        icon: Icon(
-          shiftProv.isShiftActive ? Icons.stop : Icons.play_arrow,
-          size: 18,
-        ),
-        label: Text(shiftProv.isShiftActive ? "Akhiri" : "Mulai"),
-        style: ElevatedButton.styleFrom(
-          backgroundColor:
-              shiftProv.isShiftActive ? Colors.red : Colors.blue[700],
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProductsSection() {
-    if (_isLoadingProducts) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(20.0),
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
-
-    if (_productsError != null) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.red.shade50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.red.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.error_outline, color: Colors.red.shade700),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                _productsError!,
-                style: TextStyle(color: Colors.red.shade700),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_products.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline, color: Colors.grey.shade600),
-            const SizedBox(width: 8),
-            Text(
-              'No products found',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final formatCurrency = NumberFormat.currency(
-      locale: 'id_ID',
-      symbol: 'Rp ',
-      decimalDigits: 0,
-    );
-
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _products.length,
-      itemBuilder: (context, index) {
-        final product = _products[index];
-        final categoryName = product['category']?['nama'] ?? 'Uncategorized';
-        final stock = product['stock'] ?? 0;
-
-        double hargaDouble =
-            double.tryParse(product['hargaJual']?.toString() ?? '0') ?? 0.0;
-        String formattedPrice = formatCurrency.format(hargaDouble);
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.02),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 8,
-            ),
-            leading: Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                Icons.inventory_2_outlined,
-                color: Colors.blue.shade700,
-              ),
-            ),
-            title: Text(
-              product['nama'] ?? 'Unnamed Product',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    formattedPrice,
-                    style: const TextStyle(
-                      color: Color(0xFF1976D2),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      'Stok: $stock  •  $categoryName',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    bool isMobile,
-    double screenWidth,
-  ) {
-    double cardWidth = (screenWidth - 60) / 2;
-
+  Widget _buildStat(String val, String label, IconData icon) {
+    double sw = MediaQuery.of(context).size.width;
     return Container(
-      width: cardWidth,
+      width: (sw - 60) / 2,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
         border: Border.all(color: Colors.grey.shade200),
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Icon(icon, size: 16, color: Colors.blue.shade700),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+          Icon(icon, size: 20, color: const Color(0xFF0061C1)),
+          const SizedBox(height: 12),
           Text(
-            value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            val,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         ],
       ),
+    );
+  }
+
+  Widget _buildProdList(NumberFormat currency) {
+    if (_isLoadingProducts)
+      return const Center(child: CircularProgressIndicator());
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _products.length,
+      itemBuilder: (context, i) {
+        final p = _products[i];
+        double harga = double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0;
+        return ListTile(
+          leading: const Icon(Icons.inventory_2_outlined, color: Colors.blue),
+          title: Text(
+            p['nama'] ?? '',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          ),
+          subtitle: Text(currency.format(harga)),
+        );
+      },
     );
   }
 }
