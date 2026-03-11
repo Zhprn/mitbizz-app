@@ -52,12 +52,10 @@ class _LoginPageState extends State<LoginPage> {
                   style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 9),
-
                 const Text(
                   "Kelola transaksi, stok, dan laporan dalam satu sistem terintegrasi.",
                   style: TextStyle(color: Colors.grey),
                 ),
-
                 if (auth.error != null) ...[
                   const SizedBox(height: 16),
                   Container(
@@ -81,9 +79,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ],
-
                 const SizedBox(height: 30),
-
                 const Text("Email"),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -100,9 +96,7 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
-
                 const SizedBox(height: 20),
-
                 const Text("Password"),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -119,9 +113,7 @@ class _LoginPageState extends State<LoginPage> {
                     return null;
                   },
                 ),
-
                 const SizedBox(height: 10),
-
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -132,9 +124,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 20),
-
                 SizedBox(
                   width: double.infinity,
                   height: 50,
@@ -165,9 +155,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                   ),
                 ),
-
                 const SizedBox(height: 20),
-
                 const Center(
                   child: Text(
                     "Butuh bantuan? Hubungi admin bisnis Anda.",
@@ -186,22 +174,18 @@ class _LoginPageState extends State<LoginPage> {
     return InputDecoration(
       hintText: hint,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Colors.black, width: 1),
       ),
-
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Colors.black, width: 2),
       ),
-
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Colors.red, width: 1),
       ),
-
       focusedErrorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Colors.red, width: 2),
