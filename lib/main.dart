@@ -45,15 +45,12 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Gunakan context dari builder MaterialApp untuk DevicePreview agar tidak terjadi rebuild loop
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'POS App',
-      // PENTING: DevicePreview membutuhkan pengaturan ini agar tidak konflik dengan MediaQuery
+      title: 'Mitbiz POS',
       useInheritedMediaQuery: true,
       locale: DevicePreview.locale(context),
       builder: (context, child) {
-        // Gabungkan DevicePreview builder dengan pembungkus navigasi Anda jika ada
         return DevicePreview.appBuilder(context, child);
       },
       theme: ThemeData(
