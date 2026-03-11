@@ -34,7 +34,7 @@ dependencies:
   better_auth_flutter: ^0.0.1
   provider: ^6.1.2
   http: ^1.2.0
-  
+  lottie: ^3.1.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -72,6 +72,7 @@ flutter:
     - assets/images/menu2.png
     - assets/images/menu3.png
     - assets/images/menu4.png
+    - assets/animation/succes_animation.json
 
   fonts:
     - family: Plus Jakarta Sans

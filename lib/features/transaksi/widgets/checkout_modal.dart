@@ -37,6 +37,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
     _fetchPaymentMethods();
   }
 
+  String _formatRupiah(int number) {
+    return number.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
+  }
+
   Future<void> _fetchPaymentMethods() async {
     final authProv = context.read<AuthProvider>();
     try {
@@ -228,7 +235,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                   style: const TextStyle(fontSize: 12),
                                 ),
                                 Text(
-                                  "Rp ${item['price'] * item['qty']}",
+                                  "Rp ${_formatRupiah((item['price'] as int) * (item['qty'] as int))}",
                                   style: const TextStyle(fontSize: 12),
                                 ),
                               ],
@@ -244,7 +251,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             Text(
-                              "Rp ${widget.total}",
+                              "Rp ${_formatRupiah(widget.total)}",
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Colors.blue,
@@ -324,7 +331,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                         borderRadius: BorderRadius.circular(8),
                                       ),
                                       child: Text(
-                                        "Rp ${NumberFormat('#,###').format(nominal)}",
+                                        "Rp ${_formatRupiah(nominal)}",
                                         style: const TextStyle(fontSize: 11),
                                       ),
                                     ),

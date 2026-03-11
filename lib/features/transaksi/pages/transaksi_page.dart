@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
-import '../widgets/checkout_modal.dart'; // Sesuaikan path jika diletakkan di folder lain
+import '../widgets/checkout_modal.dart';
 
 class TransaksiPage extends StatefulWidget {
   const TransaksiPage({super.key});
@@ -18,6 +18,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
   String selectedCategory = "Semua";
   String searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _diskonController = TextEditingController();
+
   Timer? _debounce;
   List<Map<String, dynamic>> cartItems = [];
   List<Map<String, dynamic>> categories = [];
@@ -26,6 +28,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
   String? _errorMessage;
   int currentPage = 1;
   int totalPages = 1;
+
+  int _diskonValue = 0;
 
   @override
   void initState() {
@@ -39,7 +43,15 @@ class _TransaksiPageState extends State<TransaksiPage> {
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
+    _diskonController.dispose();
     super.dispose();
+  }
+
+  String _formatRupiah(int number) {
+    return number.toString().replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (Match m) => '${m[1]}.',
+    );
   }
 
   Future<void> _fetchData({int page = 1}) async {
@@ -120,6 +132,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
           formattedProducts.add({
             "id": p['id'],
             "name": p['nama'] ?? 'Unnamed Product',
+            "kode": p['kodeBarang'] ?? 'FD-001',
             "price": priceDouble.round(),
             "category": p['category']?['nama'] ?? 'Uncategorized',
             "isAvailable": stock >= 1,
@@ -193,8 +206,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
     0,
     (sum, item) => sum + ((item['price'] as num).toInt() * item['qty'] as int),
   );
-  int get diskon => 0;
-  int get total => (subTotal - diskon);
+  int get diskon => _diskonValue;
+  int get pajak => ((subTotal - diskon) * 0.12).toInt();
+  int get total => (subTotal - diskon) + pajak;
 
   void _showCheckoutModal() {
     showDialog(
@@ -205,7 +219,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
             subTotal: subTotal,
             total: total,
             onSuccess: () {
-              setState(() => cartItems.clear());
+              setState(() {
+                cartItems.clear();
+                _diskonValue = 0;
+                _diskonController.clear();
+              });
               _fetchData(page: currentPage);
             },
           ),
@@ -248,7 +266,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                           child: GridView.builder(
                             gridDelegate:
                                 SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: isMobile ? 2 : 3,
+                                  crossAxisCount: isMobile ? 2 : 4,
                                   childAspectRatio: 0.85,
                                   crossAxisSpacing: 20,
                                   mainAxisSpacing: 20,
@@ -282,24 +300,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                "Total (${cartItems.length} Item)",
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                "Rp $total",
-                                style: const TextStyle(
-                                  color: Colors.blue,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ],
+                          _summaryRow(
+                            "Total (${cartItems.length} Item)",
+                            "Rp ${_formatRupiah(total)}",
+                            isBold: true,
+                            valueColor: Colors.black,
                           ),
                           const SizedBox(height: 12),
                           _buildCheckoutButton(isShiftActive),
@@ -463,68 +468,121 @@ class _TransaksiPageState extends State<TransaksiPage> {
       child: InkWell(
         onTap: () => _addToCart(product),
         borderRadius: BorderRadius.circular(15),
-        child: Opacity(
-          opacity: isAvailable ? 1.0 : 0.6,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFF1F3F4),
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(15),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Container(
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF1F3F4),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(15),
+                        ),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.inventory_2_outlined,
+                          size: 50,
+                          color: Colors.grey,
+                        ),
                       ),
                     ),
-                    child: const Icon(
-                      Icons.inventory_2_outlined,
-                      size: 50,
-                      color: Colors.grey,
+
+                    if (!isAvailable)
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.5),
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(15),
+                          ),
+                        ),
+                      ),
+
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircleAvatar(
+                              radius: 4,
+                              backgroundColor:
+                                  isAvailable ? Colors.green : Colors.red,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              isAvailable ? "Available" : "Not Available",
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        product['name'],
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product['name'],
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "Rp ${product['price']}",
-                        style: const TextStyle(
-                          color: Color(0xFF1976D2),
-                          fontWeight: FontWeight.bold,
-                        ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      product['kode'] ?? '-',
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 11,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "Stok: ${product['stock']}",
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 11,
-                        ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "Rp ${_formatRupiah(product['price'])}",
+                      style: const TextStyle(
+                        color: Color(0xFF1976D2),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -576,11 +634,32 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   fontSize: 16,
                 ),
               ),
-              if (cartItems.isNotEmpty)
-                IconButton(
-                  onPressed: () => setState(() => cartItems.clear()),
-                  icon: const Icon(Icons.delete_sweep, color: Colors.grey),
+              OutlinedButton.icon(
+                onPressed:
+                    () => setState(() {
+                      cartItems.clear();
+                      _diskonController.clear();
+                      _diskonValue = 0;
+                    }),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  size: 16,
+                  color: Colors.black54,
                 ),
+                label: const Text(
+                  "Reset",
+                  style: TextStyle(color: Colors.black87),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -602,43 +681,143 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   Widget _buildCartItem(Map<String, dynamic> item) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(vertical: 4),
-      title: Text(
-        item['name'],
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+    int itemTotal = (item['price'] as num).toInt() * (item['qty'] as int);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(12),
       ),
-      subtitle: Text("Rp ${(item['price'] as num) * item['qty']}"),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconButton(
-            icon: const Icon(
-              Icons.remove_circle_outline,
-              size: 20,
-              color: Colors.redAccent,
+          Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F3F4),
+              borderRadius: BorderRadius.circular(8),
             ),
-            onPressed: () {
-              setState(() {
-                if (item['qty'] > 1) {
-                  item['qty']--;
-                } else {
-                  cartItems.remove(item);
-                }
-              });
-            },
-          ),
-          Text(
-            "${item['qty']}",
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          IconButton(
-            icon: const Icon(
-              Icons.add_circle_outline,
-              size: 20,
-              color: Colors.green,
+            child: const Icon(
+              Icons.inventory_2_outlined,
+              color: Colors.grey,
+              size: 24,
             ),
-            onPressed: () => setState(() => item['qty']++),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item['name'],
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          cartItems.remove(item);
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.red,
+                          size: 18,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  "Rp ${_formatRupiah(item['price'] as int)}",
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "Rp ${_formatRupiah(itemTotal)}",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                if (item['qty'] > 1) {
+                                  item['qty']--;
+                                } else {
+                                  cartItems.remove(item);
+                                }
+                              });
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              child: Icon(Icons.remove, size: 16),
+                            ),
+                          ),
+                          Container(
+                            width: 1,
+                            height: 20,
+                            color: Colors.grey.shade300,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              "${item['qty']}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            width: 1,
+                            height: 20,
+                            color: Colors.grey.shade300,
+                          ),
+                          InkWell(
+                            onTap: () => setState(() => item['qty']++),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              child: Icon(Icons.add, size: 16),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -647,13 +826,93 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildCheckoutArea(bool isShiftActive) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _summaryRow("Sub Total", "Rp $subTotal"),
-          const Divider(),
-          _summaryRow("Total", "Rp $total", isBold: true),
+          const Text(
+            "Diskon Transaksi",
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 40,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: TextField(
+              controller: _diskonController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                hintText: "Rp 0",
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+              onChanged: (val) {
+                setState(() {
+                  _diskonValue =
+                      int.tryParse(val.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+                });
+              },
+            ),
+          ),
           const SizedBox(height: 16),
+
+          _summaryRow("Sub Total", "Rp ${_formatRupiah(subTotal)}"),
+          _summaryRow("Pajak 12%", "Rp ${_formatRupiah(pajak)}"),
+          const SizedBox(height: 12),
+
+          SizedBox(
+            width: double.infinity,
+            height: 1,
+            child: CustomPaint(painter: DashedLinePainter()),
+          ),
+          const SizedBox(height: 12),
+
+          _summaryRow(
+            "Total",
+            "Rp ${_formatRupiah(total)}",
+            isBold: true,
+            fontSize: 18,
+            valueColor: Colors.black,
+          ),
+          const SizedBox(height: 20),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Metode Pembayaran",
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text("QRIS"),
+                Icon(Icons.check_circle, color: Color(0xFF1976D2), size: 18),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
           _buildCheckoutButton(isShiftActive),
         ],
       ),
@@ -670,16 +929,23 @@ class _TransaksiPageState extends State<TransaksiPage> {
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF1976D2),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          elevation: 0,
         ),
         child: const Text(
-          "Checkout",
+          "Proses Pembayaran",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
     );
   }
 
-  Widget _summaryRow(String label, String value, {bool isBold = false}) {
+  Widget _summaryRow(
+    String label,
+    String value, {
+    bool isBold = false,
+    double fontSize = 13,
+    Color? valueColor,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -687,12 +953,18 @@ class _TransaksiPageState extends State<TransaksiPage> {
         children: [
           Text(
             label,
-            style: TextStyle(color: isBold ? Colors.black : Colors.grey),
+            style: TextStyle(
+              color: isBold ? Colors.black : Colors.grey.shade700,
+              fontSize: fontSize,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+            ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
+              fontSize: fontSize,
+              color: valueColor ?? Colors.black87,
             ),
           ),
         ],
@@ -701,7 +973,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 }
 
-// Unused CustomPainter
 class DashedLinePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
