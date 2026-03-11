@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../widgets/invoice_modal.dart';
 
 class RiwayatTransaksiPage extends StatefulWidget {
   const RiwayatTransaksiPage({super.key});
@@ -19,6 +20,9 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
   String? errorMessage;
   final TextEditingController _searchController = TextEditingController();
 
+  int currentPage = 1;
+  int totalPages = 1;
+
   @override
   void initState() {
     super.initState();
@@ -33,7 +37,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     super.dispose();
   }
 
-  Future<void> fetchTransactions() async {
+  Future<void> fetchTransactions({int page = 1}) async {
     if (!mounted) return;
 
     setState(() {
@@ -45,20 +49,63 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
       final authProv = context.read<AuthProvider>();
       final tenantId = authProv.tenantId;
 
-      final response = await authProv.authenticatedGet(
-        '/api/orders?tenantId=$tenantId',
-      );
+      final responses = await Future.wait([
+        authProv.authenticatedGet(
+          '/api/orders?tenantId=$tenantId&page=$page&limit=10',
+        ),
+        authProv.authenticatedGet('/api/order-items'),
+      ]);
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> result = json.decode(response.body);
+      final orderResponse = responses[0];
+      final itemResponse = responses[1];
+
+      if (orderResponse.statusCode == 200) {
+        final Map<String, dynamic> orderJson = json.decode(orderResponse.body);
+
+        List<dynamic> orders = [];
+        if (orderJson['data'] != null && orderJson['data']['data'] != null) {
+          orders = orderJson['data']['data'];
+        } else if (orderJson['data'] is List) {
+          orders = orderJson['data'];
+        }
+
+        int parsedTotalPages = 1;
+        if (orderJson['data'] is Map && orderJson['data']['meta'] != null) {
+          parsedTotalPages = orderJson['data']['meta']['totalPages'] ?? 1;
+        } else if (orderJson['meta'] != null) {
+          parsedTotalPages = orderJson['meta']['totalPages'] ?? 1;
+        }
+
+        List<dynamic> allItems = [];
+        if (itemResponse.statusCode == 200) {
+          final Map<String, dynamic> itemJson = json.decode(itemResponse.body);
+          if (itemJson['data'] is List) {
+            allItems = itemJson['data'];
+          } else if (itemJson['data'] != null &&
+              itemJson['data']['data'] is List) {
+            allItems = itemJson['data']['data'];
+          }
+        }
+
+        for (var order in orders) {
+          final String orderId = order['id']?.toString() ?? '';
+          final int itemCount =
+              allItems
+                  .where((item) => item['orderId']?.toString() == orderId)
+                  .length;
+          order['itemCount'] = itemCount;
+        }
+
         if (mounted) {
           setState(() {
-            transactionData = result['data']['data'] ?? [];
-            filteredData = transactionData;
+            transactionData = orders;
+            currentPage = page;
+            totalPages = parsedTotalPages;
             isLoading = false;
           });
+          _filterSearch(_searchController.text);
         }
-      } else if (response.statusCode == 401) {
+      } else if (orderResponse.statusCode == 401) {
         if (mounted) {
           setState(() {
             errorMessage = "Sesi telah berakhir. Silakan login kembali.";
@@ -68,7 +115,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
       } else {
         if (mounted) {
           setState(() {
-            errorMessage = "Gagal memuat data (${response.statusCode})";
+            errorMessage = "Gagal memuat data (${orderResponse.statusCode})";
             isLoading = false;
           });
         }
@@ -83,18 +130,119 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     }
   }
 
+  Future<void> _fetchAndShowInvoice(
+    BuildContext context,
+    dynamic orderData,
+  ) async {
+    final String? outletId =
+        orderData['outletId'] ?? orderData['outlet']?['id'];
+    final String? orderId = orderData['id']?.toString();
+
+    if (outletId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ID Outlet tidak ditemukan pada transaksi ini'),
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final authProv = context.read<AuthProvider>();
+
+      final responses = await Future.wait([
+        authProv.authenticatedGet('/api/outlets/$outletId'),
+        authProv.authenticatedGet('/api/order-items'),
+      ]);
+
+      if (mounted) Navigator.pop(context);
+
+      final outletResponse = responses[0];
+      final itemsResponse = responses[1];
+
+      if (outletResponse.statusCode == 200) {
+        final Map<String, dynamic> outletJson = json.decode(
+          outletResponse.body,
+        );
+        final outletData = outletJson['data'] ?? {};
+
+        List<dynamic> orderItems = [];
+        if (itemsResponse.statusCode == 200) {
+          final Map<String, dynamic> itemsJson = json.decode(
+            itemsResponse.body,
+          );
+
+          List<dynamic> allItems = [];
+          if (itemsJson['data'] is List) {
+            allItems = itemsJson['data'];
+          } else if (itemsJson['data'] != null &&
+              itemsJson['data']['data'] is List) {
+            allItems = itemsJson['data']['data'];
+          }
+
+          if (orderId != null) {
+            orderItems =
+                allItems
+                    .where((item) => item['orderId']?.toString() == orderId)
+                    .toList();
+          }
+        }
+
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder:
+                (context) => InvoiceModal(
+                  orderData: orderData,
+                  outletData: outletData,
+                  orderItems: orderItems,
+                ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Gagal memuat detail outlet (${outletResponse.statusCode})',
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Terjadi kesalahan koneksi: $e')),
+        );
+      }
+    }
+  }
+
   void _filterSearch(String query) {
     setState(() {
-      filteredData =
-          transactionData.where((item) {
-            final invoice = item['orderNumber'].toString().toLowerCase();
-            final searchLower = query.toLowerCase();
-            return invoice.contains(searchLower);
-          }).toList();
+      if (query.isEmpty) {
+        filteredData = List.from(transactionData);
+      } else {
+        filteredData =
+            transactionData.where((item) {
+              final invoice = item['orderNumber'].toString().toLowerCase();
+              final searchLower = query.toLowerCase();
+              return invoice.contains(searchLower);
+            }).toList();
+      }
     });
   }
 
   String formatCurrency(dynamic amount) {
+    if (amount == null) return "Rp 0";
     final double value = double.tryParse(amount.toString()) ?? 0;
     return NumberFormat.currency(
       locale: 'id_ID',
@@ -103,14 +251,10 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     ).format(value);
   }
 
-  String formatDate(String dateStr) {
+  String formatDate(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return '-';
     try {
-      DateTime dt = DateTime.parse(dateStr);
-
-      // 2. Paksa ke waktu lokal (WIB) agar tidak mengikuti offset UTC/Z
-      dt = dt.toLocal();
-
-      // 3. Format menggunakan Intl
+      DateTime dt = DateTime.parse(dateStr).toLocal();
       return DateFormat('d MMM yyyy, HH:mm', 'id_ID').format(dt);
     } catch (e) {
       return dateStr;
@@ -118,9 +262,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
   }
 
   String truncateInvoice(String text) {
-    if (text.length <= 15) {
-      return text;
-    }
+    if (text.length <= 15) return text;
     return '${text.substring(0, 15)}...';
   }
 
@@ -132,76 +274,70 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: const CustomAppBar(activeMenu: "Riwayat"),
-      body: Column(
-        children: [
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: fetchTransactions,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(24.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border.all(color: Colors.grey.shade200),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(left: 16, top: 20, bottom: 8),
-                        child: Text(
-                          "Riwayat Transaksi",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      _buildSearchField(isMobile),
-                      if (isLoading)
-                        const Padding(
-                          padding: EdgeInsets.all(60.0),
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      else if (errorMessage != null)
-                        Padding(
-                          padding: const EdgeInsets.all(60.0),
-                          child: Center(
-                            child: Column(
-                              children: [
-                                Text(
-                                  errorMessage!,
-                                  style: const TextStyle(color: Colors.red),
-                                ),
-                                TextButton(
-                                  onPressed: fetchTransactions,
-                                  child: const Text("Coba Lagi"),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        _buildTable(context),
-                      const SizedBox(height: 20),
-                    ],
+      body: RefreshIndicator(
+        onRefresh: () => fetchTransactions(page: 1),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(24.0),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(left: 16, top: 20, bottom: 8),
+                  child: Text(
+                    "Riwayat Transaksi",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                   ),
                 ),
-              ),
+                _buildSearchField(isMobile, screenWidth),
+                if (isLoading)
+                  const Padding(
+                    padding: EdgeInsets.all(60.0),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.all(60.0),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Text(
+                            errorMessage!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                          const SizedBox(height: 12),
+                          TextButton(
+                            onPressed:
+                                () => fetchTransactions(page: currentPage),
+                            child: const Text("Coba Lagi"),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Column(children: [_buildTable(context), _buildPagination()]),
+                const SizedBox(height: 20),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildSearchField(bool isMobile) {
+  Widget _buildSearchField(bool isMobile, double screenWidth) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: SizedBox(
-        width: isMobile ? double.infinity : 400,
+        width: isMobile ? screenWidth - 80 : 400,
         height: 40,
         child: TextField(
           controller: _searchController,
@@ -244,7 +380,8 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
       builder: (context, constraints) {
         double minTableWidth = 950;
         double tableWidth =
-            constraints.maxWidth > minTableWidth
+            constraints.maxWidth.isFinite &&
+                    constraints.maxWidth > minTableWidth
                 ? constraints.maxWidth
                 : minTableWidth;
 
@@ -310,7 +447,11 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
                             2,
                             false,
                           ),
-                          _buildFlexTextCell("-", 1, false),
+                          _buildFlexTextCell(
+                            "${data['itemCount'] ?? 0} Items",
+                            1,
+                            false,
+                          ),
                           _buildFlexTextCell(
                             formatCurrency(data['subtotal']),
                             2,
@@ -332,7 +473,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
                             false,
                           ),
                           _buildPaymentBadge(
-                            data['paymentMethod']['nama'] ?? '-',
+                            data['paymentMethod']?['nama'] ?? '-',
                           ),
                           _buildActionCell(context, data),
                         ],
@@ -377,7 +518,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
       child: Align(
         alignment: Alignment.centerLeft,
         child: InkWell(
-          onTap: () => _showInvoiceDialog(context, data),
+          onTap: () => _fetchAndShowInvoice(context, data),
           borderRadius: BorderRadius.circular(4),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -411,187 +552,36 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     );
   }
 
-  void _showInvoiceDialog(BuildContext context, dynamic data) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+  Widget _buildPagination() {
+    if (totalPages <= 1) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 24.0, bottom: 16.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed:
+                currentPage > 1
+                    ? () => fetchTransactions(page: currentPage - 1)
+                    : null,
           ),
-          backgroundColor: Colors.white,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 450),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildDialogHeader(context),
-                  const SizedBox(height: 20),
-                  _buildStoreInfo(data),
-                  const SizedBox(height: 16),
-                  Divider(color: Colors.grey.shade200),
-                  const SizedBox(height: 16),
-                  _buildTransactionDetails(data),
-                  const SizedBox(height: 20),
-                  _buildSummarySection(data),
-                  const SizedBox(height: 24),
-                  _buildDialogButtons(context),
-                ],
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              "Page $currentPage of $totalPages",
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             ),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDialogHeader(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        const Text(
-          "Invoice",
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        InkWell(
-          onTap: () => Navigator.pop(context),
-          child: const Icon(Icons.close, size: 20),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStoreInfo(dynamic data) {
-    return Center(
-      child: Column(
-        children: [
-          Text(
-            data['outlet']['nama'] ?? "Mitbiz Store",
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            "Multi-Branch POS System",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed:
+                currentPage < totalPages
+                    ? () => fetchTransactions(page: currentPage + 1)
+                    : null,
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildTransactionDetails(dynamic data) {
-    return Row(
-      children: [
-        Expanded(child: _infoColumn("Invoice", data['orderNumber'])),
-        Expanded(
-          child: _infoColumn("Tanggal", formatDate(data['completedAt'])),
-        ),
-      ],
-    );
-  }
-
-  Widget _infoColumn(String title, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummarySection(dynamic data) {
-    return Column(
-      children: [
-        _buildSummaryRow("Subtotal", formatCurrency(data['subtotal']), false),
-        const SizedBox(height: 8),
-        _buildSummaryRow(
-          "Diskon",
-          "- ${formatCurrency(data['jumlahDiskon'])}",
-          true,
-        ),
-        const SizedBox(height: 8),
-        _buildSummaryRow("Pajak", formatCurrency(data['jumlahPajak']), false),
-        const SizedBox(height: 16),
-        Divider(color: Colors.grey.shade200),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              "Total:",
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              formatCurrency(data['total']),
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummaryRow(String title, String value, bool isRed) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isRed ? Colors.red : Colors.black87,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isRed ? Colors.red : Colors.black87,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDialogButtons(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.print, size: 18),
-            label: const Text("Cetak"),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue.shade600,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: OutlinedButton(
-            onPressed: () => Navigator.pop(context),
-            style: OutlinedButton.styleFrom(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ),
-            child: const Text("Tutup"),
-          ),
-        ),
-      ],
     );
   }
 }
