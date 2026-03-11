@@ -29,45 +29,53 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
         children: [
           Image.asset('assets/images/logoBlack.png', height: 25),
           if (!isMobile) const SizedBox(width: 40),
-
-          if (!isMobile) ...[
-            _navItem(
-              context,
-              "Dashboard",
-              Icons.grid_view_rounded,
-              activeMenu == "Dashboard",
-              AppRoutes.dashboard,
+          if (!isMobile)
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4F5F7),
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _navItem(
+                    context,
+                    "Dashboard",
+                    Icons.grid_view_rounded,
+                    activeMenu == "Dashboard",
+                    AppRoutes.dashboard,
+                  ),
+                  _navItem(
+                    context,
+                    "Transaksi",
+                    Icons.swap_horiz,
+                    activeMenu == "Transaksi",
+                    AppRoutes.transaksi,
+                  ),
+                  _navItem(
+                    context,
+                    "Stok",
+                    Icons.inventory_2_outlined,
+                    activeMenu == "Stok",
+                    AppRoutes.stok,
+                  ),
+                  _navItem(
+                    context,
+                    "Riwayat",
+                    Icons.history,
+                    activeMenu == "Riwayat",
+                    AppRoutes.riwayat_transaksi,
+                  ),
+                ],
+              ),
             ),
-            _navItem(
-              context,
-              "Transaksi",
-              Icons.swap_horiz,
-              activeMenu == "Transaksi",
-              AppRoutes.transaksi,
-            ),
-            _navItem(
-              context,
-              "Stok",
-              Icons.inventory_2_outlined,
-              activeMenu == "Stok",
-              AppRoutes.stok,
-            ),
-            _navItem(
-              context,
-              "Riwayat",
-              Icons.history,
-              activeMenu == "Riwayat",
-              AppRoutes.riwayat_transaksi,
-            ),
-          ],
         ],
       ),
       actions: [
         if (isMobile) _buildMobileMenu(context),
-
         if (shiftProv.isShiftActive) _shiftBadge(isMobile),
         _userChip(isMobile, user),
-
         const SizedBox(width: 10),
         IconButton(
           onPressed: () async {
@@ -112,7 +120,8 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     IconData icon,
     String route,
   ) {
-    bool isActive = activeMenu == title;
+    bool isActive =
+        activeMenu == title || (activeMenu == "Riwayat" && title == "Riwayat");
     return PopupMenuItem(
       value: route,
       child: Row(
@@ -157,26 +166,44 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     bool active,
     String route,
   ) {
-    return InkWell(
-      onTap:
-          () =>
-              route != "#"
-                  ? Navigator.pushReplacementNamed(context, route)
-                  : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: active ? Colors.blue : Colors.grey),
-            const SizedBox(width: 6),
-            Text(
-              title,
-              style: TextStyle(
-                color: active ? Colors.blue : Colors.grey,
-                fontSize: 13,
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap:
+            () =>
+                route != "#"
+                    ? Navigator.pushReplacementNamed(context, route)
+                    : null,
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: active ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: active ? Colors.blue.shade600 : Colors.transparent,
+              width: 1.5,
             ),
-          ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: active ? Colors.black87 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  color: active ? Colors.black87 : Colors.grey.shade600,
+                  fontSize: 13,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
