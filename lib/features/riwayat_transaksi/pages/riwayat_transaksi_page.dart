@@ -48,12 +48,13 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     try {
       final authProv = context.read<AuthProvider>();
       final tenantId = authProv.tenantId;
+      final outletId = authProv.outletId;
 
       final responses = await Future.wait([
         authProv.authenticatedGet(
           '/api/orders?tenantId=$tenantId&page=$page&limit=10',
         ),
-        authProv.authenticatedGet('/api/order-items'),
+        authProv.authenticatedGet('/api/order-items?outletId=$outletId'),
       ]);
 
       final orderResponse = responses[0];
@@ -88,10 +89,12 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
         }
 
         for (var order in orders) {
-          final String orderId = order['id']?.toString() ?? '';
+          final String currentOrderId = order['id']?.toString() ?? '';
           final int itemCount =
               allItems
-                  .where((item) => item['orderId']?.toString() == orderId)
+                  .where(
+                    (item) => item['orderId']?.toString() == currentOrderId,
+                  )
                   .length;
           order['itemCount'] = itemCount;
         }
@@ -138,11 +141,9 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
         orderData['outletId'] ?? orderData['outlet']?['id'];
     final String? orderId = orderData['id']?.toString();
 
-    if (outletId == null) {
+    if (outletId == null || orderId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('ID Outlet tidak ditemukan pada transaksi ini'),
-        ),
+        const SnackBar(content: Text('Data Outlet atau Order ID tidak valid')),
       );
       return;
     }
@@ -158,7 +159,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
 
       final responses = await Future.wait([
         authProv.authenticatedGet('/api/outlets/$outletId'),
-        authProv.authenticatedGet('/api/order-items'),
+        authProv.authenticatedGet('/api/order-items?orderId=$orderId'),
       ]);
 
       if (mounted) Navigator.pop(context);
@@ -166,32 +167,20 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
       final outletResponse = responses[0];
       final itemsResponse = responses[1];
 
-      if (outletResponse.statusCode == 200) {
+      if (outletResponse.statusCode == 200 && itemsResponse.statusCode == 200) {
         final Map<String, dynamic> outletJson = json.decode(
           outletResponse.body,
         );
         final outletData = outletJson['data'] ?? {};
 
+        final Map<String, dynamic> itemsJson = json.decode(itemsResponse.body);
+
         List<dynamic> orderItems = [];
-        if (itemsResponse.statusCode == 200) {
-          final Map<String, dynamic> itemsJson = json.decode(
-            itemsResponse.body,
-          );
-
-          List<dynamic> allItems = [];
-          if (itemsJson['data'] is List) {
-            allItems = itemsJson['data'];
-          } else if (itemsJson['data'] != null &&
-              itemsJson['data']['data'] is List) {
-            allItems = itemsJson['data']['data'];
-          }
-
-          if (orderId != null) {
-            orderItems =
-                allItems
-                    .where((item) => item['orderId']?.toString() == orderId)
-                    .toList();
-          }
+        if (itemsJson['data'] is List) {
+          orderItems = itemsJson['data'];
+        } else if (itemsJson['data'] != null &&
+            itemsJson['data']['data'] is List) {
+          orderItems = itemsJson['data']['data'];
         }
 
         if (mounted) {
@@ -208,11 +197,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Gagal memuat detail outlet (${outletResponse.statusCode})',
-              ),
-            ),
+            const SnackBar(content: Text('Gagal memuat detail transaksi')),
           );
         }
       }

@@ -56,11 +56,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Future<void> _fetchData({int page = 1}) async {
     final authProv = context.read<AuthProvider>();
-    final tenantId = authProv.tenantId;
+    final outletId = authProv.outletId;
 
-    if (tenantId == null) {
+    if (outletId == null) {
       setState(() {
-        _errorMessage = 'Tenant ID tidak tersedia';
+        _errorMessage = 'Outlet ID tidak tersedia';
         _isLoading = false;
       });
       return;
@@ -72,9 +72,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
     });
 
     try {
-      String urlCategory = '/api/categories?tenantId=$tenantId';
+      String urlCategory = '/api/categories?outletId=$outletId';
       String urlProduct =
-          '/api/products?tenantId=$tenantId&page=$page&limit=10';
+          '/api/products?outletId=$outletId&page=$page&limit=10';
 
       if (selectedCategory != "Semua") {
         final cat = categories.firstWhere(
