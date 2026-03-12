@@ -19,7 +19,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     final user = authProv.user;
 
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 800;
+    bool isMobile = screenWidth < 1000;
 
     return AppBar(
       backgroundColor: Colors.white,

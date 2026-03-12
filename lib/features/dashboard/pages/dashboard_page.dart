@@ -348,8 +348,8 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildStat(String val, String label, IconData icon) {
     double sw = MediaQuery.of(context).size.width;
     return Container(
-      width: (sw - 60) / 2,
-      padding: const EdgeInsets.all(16),
+      width: (sw - 150) / 2,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade200),
         borderRadius: BorderRadius.circular(12),
