@@ -4,6 +4,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import 'package:lottie/lottie.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import '../../../core/services/print_service.dart';
+import '../../../core/widgets/print_alert.dart';
 
 class CheckoutModal extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
@@ -35,10 +38,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
   final TextEditingController _antrianController = TextEditingController();
   bool _isSubmitting = false;
 
+  Map<String, dynamic> _outletData = {};
+  Map<String, dynamic> _tenantSettings = {};
+
   @override
   void initState() {
     super.initState();
-    _fetchPaymentMethods();
+    _fetchInitialData();
   }
 
   String _formatRupiah(int number) {
@@ -46,6 +52,29 @@ class _CheckoutModalState extends State<CheckoutModal> {
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
       (Match m) => '${m[1]}.',
     );
+  }
+
+  Future<void> _fetchInitialData() async {
+    await _fetchPaymentMethods();
+    await _fetchStoreData();
+  }
+
+  Future<void> _fetchStoreData() async {
+    final authProv = context.read<AuthProvider>();
+    try {
+      final res = await authProv.authenticatedGet(
+        '/api/outlets/${authProv.outletId}',
+      );
+      if (res.statusCode == 200) {
+        final jsonRes = json.decode(res.body);
+        setState(() {
+          _outletData = jsonRes['data'] ?? {};
+          _tenantSettings = jsonRes['data']?['tenant']?['settings'] ?? {};
+        });
+      }
+    } catch (e) {
+      debugPrint("Gagal ambil data toko: $e");
+    }
   }
 
   Future<void> _fetchPaymentMethods() async {
@@ -101,7 +130,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
       "subtotal": widget.subTotal.toString(),
       "jumlahPajak": widget.pajak.toString(),
       "jumlahDiskon": widget.diskon.toString(),
-      "diskonBreakdown": [],
       "paymentMethodId": selectedPaymentMethodId,
       "total": widget.total.toString(),
       "notes": _notesController.text,
@@ -114,7 +142,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   "productId": item['id'],
                   "quantity": item['qty'],
                   "hargaSatuan": item['price'].toString(),
-                  "jumlahDiskon": "0",
                   "total": (item['price'] * item['qty']).toString(),
                 },
               )
@@ -124,35 +151,32 @@ class _CheckoutModalState extends State<CheckoutModal> {
     try {
       final res = await authProv.authenticatedPost('/api/orders', body);
       if (res.statusCode == 201 || res.statusCode == 200) {
+        final responseData = json.decode(res.body)['data'];
         if (mounted) {
-          Navigator.pop(context); // Tutup modal checkout
-          widget.onSuccess(); // Reset keranjang
-          _showSuccessAnimation(context); // Tampilkan animasi
+          Navigator.pop(context);
+          widget.onSuccess();
+          _showSuccessAnimation(context, responseData);
         }
       } else {
-        if (mounted) {
+        if (mounted)
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text("Gagal: ${res.body}")));
-        }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text("Error: $e")));
-      }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
-  void _showSuccessAnimation(BuildContext context) {
-    bool isPopped = false;
-
+  void _showSuccessAnimation(BuildContext context, dynamic orderData) {
     showDialog(
       context: context,
-      barrierDismissible: true, // Bisa ditutup dengan klik luar
+      barrierDismissible: false,
       builder: (BuildContext dialogContext) {
         return Dialog(
           backgroundColor: Colors.white,
@@ -170,7 +194,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   height: 150,
                   repeat: false,
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
                 const Text(
                   "Transaksi Berhasil!",
                   style: TextStyle(
@@ -179,21 +203,75 @@ class _CheckoutModalState extends State<CheckoutModal> {
                     color: Colors.blue,
                   ),
                 ),
+                const SizedBox(height: 24),
+
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    List<BluetoothDevice> connected =
+                        FlutterBluePlus.connectedDevices;
+
+                    if (connected.isEmpty) {
+                      CustomPrintAlert.show(
+                        dialogContext,
+                        "Printer belum terhubung",
+                      );
+                      return;
+                    }
+
+                    try {
+                      CustomPrintAlert.show(
+                        dialogContext,
+                        "Sedang mencetak...",
+                      );
+
+                      await PrintService.printInvoice(
+                        device: connected.first,
+                        orderData: orderData,
+                        outletData: _outletData,
+                        orderItems: widget.cartItems,
+                        tenantSettings: _tenantSettings,
+                      );
+                    } catch (e) {
+                      if (Navigator.canPop(dialogContext)) {
+                        CustomPrintAlert.show(
+                          dialogContext,
+                          "Gagal mencetak struk",
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.print, color: Colors.white),
+                  label: const Text(
+                    "Cetak Invoice",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    minimumSize: const Size(double.infinity, 45),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 45),
+                    side: const BorderSide(color: Colors.blue),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text("Tutup"),
+                ),
               ],
             ),
           ),
         );
       },
-    ).then((_) {
-      isPopped = true; // Menandai jika sudah ditutup secara manual (klik luar)
-    });
-
-    // Auto close setelah 2 detik
-    Future.delayed(const Duration(seconds: 2), () {
-      if (!isPopped && Navigator.canPop(context)) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-    });
+    );
   }
 
   @override
@@ -418,10 +496,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         controller: _antrianController,
                         decoration: InputDecoration(
                           hintText: "Contoh: A-01",
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 12,
-                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
