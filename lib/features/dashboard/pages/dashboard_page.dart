@@ -8,6 +8,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 import '../widgets/shift_status_alert.dart';
+import '../widgets/printer_modal.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -30,9 +31,7 @@ class _DashboardPageState extends State<DashboardPage> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) setState(() => _now = DateTime.now());
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchDashboardData();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchDashboardData());
   }
 
   @override
@@ -44,7 +43,6 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
     final outletId = authProv.outletId;
-
     if (outletId == null) return;
 
     setState(() => _isLoadingProducts = true);
@@ -86,24 +84,19 @@ class _DashboardPageState extends State<DashboardPage> {
       if (responses[2].statusCode == 200) {
         final shiftData = json.decode(responses[2].body);
         final data = shiftData['data'];
-
         if (data != null && data['status'] == 'buka') {
-          String? parsedStartTime;
-          if (data['openedAt'] != null) {
-            final dt = DateTime.parse(data['openedAt']).toLocal();
-            parsedStartTime = DateFormat('HH.mm.ss').format(dt);
-          }
+          final dt = DateTime.parse(data['openedAt']).toLocal();
           context.read<ShiftProvider>().setShiftStatus(
             true,
             shiftId: data['id']?.toString(),
-            startTime: parsedStartTime,
+            startTime: DateFormat('HH.mm.ss').format(dt),
           );
         } else {
           context.read<ShiftProvider>().setShiftStatus(false);
         }
       }
     } catch (e) {
-      debugPrint("Error: $e");
+      debugPrint("Error Fetch: $e");
     } finally {
       if (mounted) setState(() => _isLoadingProducts = false);
     }
@@ -114,15 +107,6 @@ class _DashboardPageState extends State<DashboardPage> {
     final expectedController = TextEditingController();
     final selisihController = TextEditingController();
     final catatanController = TextEditingController();
-
-    void calculate() {
-      double t = double.tryParse(tutupController.text) ?? 0;
-      double e = double.tryParse(expectedController.text) ?? 0;
-      selisihController.text = (t - e).toString();
-    }
-
-    tutupController.addListener(calculate);
-    expectedController.addListener(calculate);
 
     showDialog(
       context: context,
@@ -157,12 +141,6 @@ class _DashboardPageState extends State<DashboardPage> {
                             isRequired: true,
                           ),
                           _buildField(
-                            "Selisih",
-                            selisihController,
-                            TextInputType.number,
-                            enabled: false,
-                          ),
-                          _buildField(
                             "Catatan",
                             catatanController,
                             TextInputType.text,
@@ -181,30 +159,22 @@ class _DashboardPageState extends State<DashboardPage> {
                         backgroundColor: Colors.red,
                         foregroundColor: Colors.white,
                       ),
-                      onPressed:
-                          shiftProv.isProcessing
-                              ? null
-                              : () async {
-                                if (_formKey.currentState!.validate()) {
-                                  final auth = context.read<AuthProvider>();
-                                  final success = await shiftProv.stopShift(
-                                    auth,
-                                    {
-                                      "jumlahTutup": tutupController.text,
-                                      "jumlahExpected": expectedController.text,
-                                      "selisih": selisihController.text,
-                                      "catatan": catatanController.text,
-                                    },
-                                  );
-                                  if (success && context.mounted) {
-                                    Navigator.pop(context);
-                                    ShiftStatusAlert.show(
-                                      context,
-                                      "Shift Berhasil Diakhiri",
-                                    );
-                                  }
-                                }
-                              },
+                      onPressed: () async {
+                        if (_formKey.currentState!.validate()) {
+                          final success = await shiftProv
+                              .stopShift(context.read<AuthProvider>(), {
+                                "jumlahTutup": tutupController.text,
+                                "catatan": catatanController.text,
+                              });
+                          if (success && context.mounted) {
+                            Navigator.pop(context);
+                            ShiftStatusAlert.show(
+                              context,
+                              "Shift Berhasil Diakhiri",
+                            );
+                          }
+                        }
+                      },
                       child: const Text("Akhiri"),
                     ),
                   ],
@@ -217,7 +187,6 @@ class _DashboardPageState extends State<DashboardPage> {
     String label,
     TextEditingController controller,
     TextInputType type, {
-    bool enabled = true,
     bool isRequired = false,
   }) {
     return Padding(
@@ -225,22 +194,13 @@ class _DashboardPageState extends State<DashboardPage> {
       child: TextFormField(
         controller: controller,
         keyboardType: type,
-        enabled: enabled,
         validator:
             isRequired
-                ? (value) {
-                  if (value == null || value.isEmpty)
-                    return "$label wajib diisi";
-                  return null;
-                }
+                ? (v) => (v == null || v.isEmpty) ? "$label wajib diisi" : null
                 : null,
         decoration: InputDecoration(
           labelText: label,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
-          ),
         ),
       ),
     );
@@ -261,85 +221,7 @@ class _DashboardPageState extends State<DashboardPage> {
       appBar: const CustomAppBar(activeMenu: "Dashboard"),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      shiftProv.isShiftActive
-                          ? "Shift Aktif"
-                          : "Shift Nonaktif",
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      shiftProv.isShiftActive
-                          ? "Mulai: ${shiftProv.startTime ?? '-'}"
-                          : "Silakan mulai shift",
-                      style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                    ),
-                  ],
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        shiftProv.isShiftActive
-                            ? Colors.red
-                            : const Color(0xFF0061C1),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    elevation: 0,
-                  ),
-                  onPressed:
-                      shiftProv.isProcessing
-                          ? null
-                          : () async {
-                            if (!shiftProv.isShiftActive) {
-                              bool success = await shiftProv.startShift(
-                                authProv,
-                              );
-                              if (success && context.mounted) {
-                                ShiftStatusAlert.show(
-                                  context,
-                                  "Shift Telah Dimulai",
-                                );
-                              }
-                            } else {
-                              _showClosingShiftModal();
-                            }
-                          },
-                  icon:
-                      shiftProv.isProcessing
-                          ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                          : Icon(
-                            shiftProv.isShiftActive
-                                ? Icons.stop
-                                : Icons.play_arrow,
-                            size: 18,
-                          ),
-                  label: Text(shiftProv.isShiftActive ? "Akhiri" : "Mulai"),
-                ),
-              ],
-            ),
-          ),
+          _buildShiftHeader(shiftProv, authProv),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -361,6 +243,8 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 24),
+
                   const SizedBox(height: 32),
                   const Text(
                     "Daftar Produk",
@@ -377,10 +261,57 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildStat(String val, String label, IconData icon) {
-    double sw = MediaQuery.of(context).size.width;
+  Widget _buildShiftHeader(dynamic shiftProv, dynamic authProv) {
     return Container(
-      width: (sw - 150) / 2,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                shiftProv.isShiftActive ? "Shift Aktif" : "Shift Nonaktif",
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                shiftProv.isShiftActive
+                    ? "Mulai: ${shiftProv.startTime ?? '-'}"
+                    : "Silakan mulai shift",
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+            ],
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  shiftProv.isShiftActive
+                      ? Colors.red
+                      : const Color(0xFF0061C1),
+              foregroundColor: Colors.white,
+            ),
+            onPressed:
+                () =>
+                    shiftProv.isShiftActive
+                        ? _showClosingShiftModal()
+                        : shiftProv.startShift(authProv),
+            icon: Icon(shiftProv.isShiftActive ? Icons.stop : Icons.play_arrow),
+            label: Text(shiftProv.isShiftActive ? "Akhiri" : "Mulai"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStat(String val, String label, IconData icon) {
+    return Container(
+      width: (MediaQuery.of(context).size.width - 70) / 2,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade200),
@@ -393,7 +324,8 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 12),
           Text(
             val,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            overflow: TextOverflow.ellipsis,
           ),
           Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         ],
@@ -411,14 +343,15 @@ class _DashboardPageState extends State<DashboardPage> {
       itemCount: _products.length,
       itemBuilder: (context, i) {
         final p = _products[i];
-        double harga = double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0;
         return ListTile(
           leading: const Icon(Icons.inventory_2_outlined, color: Colors.blue),
           title: Text(
             p['nama'] ?? '',
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           ),
-          subtitle: Text(currency.format(harga)),
+          subtitle: Text(
+            currency.format(double.tryParse(p['hargaJual'].toString()) ?? 0),
+          ),
         );
       },
     );
