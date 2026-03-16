@@ -6,6 +6,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 import '../widgets/checkout_modal.dart';
+import '../widgets/shift_alert.dart';
 
 class TransaksiPage extends StatefulWidget {
   const TransaksiPage({super.key});
@@ -30,12 +31,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
   int totalPages = 1;
 
   int _diskonValue = 0;
+  double _taxRate = 0.0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchData();
+      _initData();
     });
   }
 
@@ -45,6 +47,36 @@ class _TransaksiPageState extends State<TransaksiPage> {
     _searchController.dispose();
     _diskonController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initData() async {
+    await _fetchTenantSettings();
+    await _fetchData();
+  }
+
+  Future<void> _fetchTenantSettings() async {
+    final authProv = context.read<AuthProvider>();
+    final tenantId = authProv.tenantId;
+    if (tenantId == null) return;
+    try {
+      final response = await authProv.authenticatedGet(
+        '/api/tenants/id/$tenantId',
+      );
+      if (response.statusCode == 200) {
+        final jsonRes = json.decode(response.body);
+        if (jsonRes['data'] != null && jsonRes['data']['settings'] != null) {
+          setState(() {
+            _taxRate =
+                double.tryParse(
+                  jsonRes['data']['settings']['taxRate'].toString(),
+                ) ??
+                0.0;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint(e.toString());
+    }
   }
 
   String _formatRupiah(int number) {
@@ -57,59 +89,51 @@ class _TransaksiPageState extends State<TransaksiPage> {
   Future<void> _fetchData({int page = 1}) async {
     final authProv = context.read<AuthProvider>();
     final tenantId = authProv.tenantId;
-
     if (tenantId == null) {
       setState(() {
-        _errorMessage = 'Outlet ID tidak tersedia';
+        _errorMessage = 'Tenant ID tidak tersedia';
         _isLoading = false;
       });
       return;
     }
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-
     try {
       String urlCategory = '/api/categories?tenantId=$tenantId';
       String urlProduct =
           '/api/products?tenantId=$tenantId&page=$page&limit=10';
-
       if (selectedCategory != "Semua") {
         final cat = categories.firstWhere(
           (c) => c['name'] == selectedCategory,
           orElse: () => {"id": ""},
         );
         final catId = cat['id'];
-        if (catId != null && catId.toString().isNotEmpty) {
+        if (catId != null && catId.toString().isNotEmpty)
           urlProduct += '&categoryId=$catId';
-        }
       }
-
       if (searchQuery.isNotEmpty) {
         String formattedSearch = searchQuery
             .split(' ')
-            .map((word) {
-              if (word.isEmpty) return '';
-              return word[0].toUpperCase() + word.substring(1).toLowerCase();
-            })
+            .map(
+              (word) =>
+                  word.isEmpty
+                      ? ''
+                      : word[0].toUpperCase() + word.substring(1).toLowerCase(),
+            )
             .join(' ');
         urlProduct += '&search=$formattedSearch';
       }
-
       final responses = await Future.wait([
         authProv.authenticatedGet(urlCategory),
         authProv.authenticatedGet(urlProduct),
       ]);
-
       final catRes = responses[0];
       final prodRes = responses[1];
-
       if (catRes.statusCode == 200 && prodRes.statusCode == 200) {
         final catJson = json.decode(catRes.body);
         final prodJson = json.decode(prodRes.body);
-
         List rawCategories =
             (catJson['data'] is Map && catJson['data']['data'] != null)
                 ? catJson['data']['data']
@@ -118,12 +142,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
             (prodJson['data'] is Map && prodJson['data']['data'] != null)
                 ? prodJson['data']['data']
                 : [];
-
         int metaTotalPages = 1;
-        if (prodJson['data'] is Map && prodJson['data']['meta'] != null) {
+        if (prodJson['data'] is Map && prodJson['data']['meta'] != null)
           metaTotalPages = prodJson['data']['meta']['totalPages'] ?? 1;
-        }
-
         List<Map<String, dynamic>> formattedProducts = [];
         for (var p in rawProducts) {
           double priceDouble =
@@ -132,14 +153,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
           formattedProducts.add({
             "id": p['id'],
             "name": p['nama'] ?? 'Unnamed Product',
-            "kode": p['kodeBarang'] ?? 'FD-001',
+            "kode": p['sku'] ?? 'FD-001',
             "price": priceDouble.round(),
             "category": p['category']?['nama'] ?? 'Uncategorized',
             "isAvailable": stock >= 1,
             "stock": stock,
           });
         }
-
         int totalSemua = 0;
         List<Map<String, dynamic>> tempCategories = [];
         for (var c in rawCategories) {
@@ -149,17 +169,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
           totalSemua += count;
           tempCategories.add({"id": catId, "name": catName, "count": count});
         }
-
-        List<Map<String, dynamic>> formattedCategories = [
-          {"id": "", "name": "Semua", "count": totalSemua},
-        ];
-        formattedCategories.addAll(tempCategories);
-
         if (mounted) {
           setState(() {
-            if (categories.isEmpty || selectedCategory == "Semua") {
-              categories = formattedCategories;
-            }
+            if (categories.isEmpty || selectedCategory == "Semua")
+              categories = [
+                {"id": "", "name": "Semua", "count": totalSemua},
+                ...tempCategories,
+              ];
             products = formattedProducts;
             currentPage = page;
             totalPages = metaTotalPages;
@@ -167,25 +183,27 @@ class _TransaksiPageState extends State<TransaksiPage> {
           });
         }
       } else {
-        if (mounted) {
+        if (mounted)
           setState(() {
-            _errorMessage =
-                "Gagal memuat data: Cat(${catRes.statusCode}), Prod(${prodRes.statusCode})";
+            _errorMessage = "Gagal memuat data";
             _isLoading = false;
           });
-        }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         setState(() {
           _errorMessage = "Terjadi kesalahan: $e";
           _isLoading = false;
         });
-      }
     }
   }
 
   void _addToCart(Map<String, dynamic> product) {
+    final isShiftActive = context.read<ShiftProvider>().isShiftActive;
+    if (!isShiftActive) {
+      ShiftAlert.show(context);
+      return;
+    }
     if (!product['isAvailable']) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Produk sedang tidak tersedia (Stok 0)')),
@@ -207,7 +225,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
     (sum, item) => sum + ((item['price'] as num).toInt() * item['qty'] as int),
   );
   int get diskon => _diskonValue;
-  int get pajak => ((subTotal - diskon) * 0.12).toInt();
+  int get pajak => ((subTotal - diskon) * (_taxRate / 100)).toInt();
   int get total => (subTotal - diskon) + pajak;
 
   void _showCheckoutModal() {
@@ -217,6 +235,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
           (context) => CheckoutModal(
             cartItems: cartItems,
             subTotal: subTotal,
+            diskon: diskon,
+            pajak: pajak,
             total: total,
             onSuccess: () {
               setState(() {
@@ -255,7 +275,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
                       child: Text(
                         _errorMessage!,
                         style: const TextStyle(color: Colors.red),
-                        textAlign: TextAlign.center,
                       ),
                     )
                     : products.isEmpty
@@ -496,7 +515,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
                         ),
                       ),
                     ),
-
                     if (!isAvailable)
                       Container(
                         decoration: BoxDecoration(
@@ -506,7 +524,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
                           ),
                         ),
                       ),
-
                     Positioned(
                       top: 10,
                       left: 10,
@@ -563,12 +580,28 @@ class _TransaksiPageState extends State<TransaksiPage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      product['kode'] ?? '-',
-                      style: TextStyle(
-                        color: Colors.grey.shade500,
-                        fontSize: 11,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          product['kode'] ?? '-',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 11,
+                          ),
+                        ),
+                        Text(
+                          "Stok: ${product['stock']}",
+                          style: TextStyle(
+                            color:
+                                (product['stock'] ?? 0) < 5
+                                    ? Colors.red
+                                    : Colors.grey.shade600,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 6),
                     Text(
@@ -712,7 +745,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Text(
@@ -724,11 +756,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                       ),
                     ),
                     InkWell(
-                      onTap: () {
-                        setState(() {
-                          cartItems.remove(item);
-                        });
-                      },
+                      onTap: () => setState(() => cartItems.remove(item)),
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
@@ -762,52 +790,29 @@ class _TransaksiPageState extends State<TransaksiPage> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
                           InkWell(
-                            onTap: () {
-                              setState(() {
-                                if (item['qty'] > 1) {
-                                  item['qty']--;
-                                } else {
-                                  cartItems.remove(item);
-                                }
-                              });
-                            },
+                            onTap:
+                                () => setState(() {
+                                  if (item['qty'] > 1) {
+                                    item['qty']--;
+                                  } else {
+                                    cartItems.remove(item);
+                                  }
+                                }),
                             child: const Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
+                              padding: EdgeInsets.all(8),
                               child: Icon(Icons.remove, size: 16),
                             ),
                           ),
-                          Container(
-                            width: 1,
-                            height: 20,
-                            color: Colors.grey.shade300,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text(
-                              "${item['qty']}",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            width: 1,
-                            height: 20,
-                            color: Colors.grey.shade300,
+                          Text(
+                            "${item['qty']}",
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           InkWell(
                             onTap: () => setState(() => item['qty']++),
                             child: const Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
+                              padding: EdgeInsets.all(8),
                               child: Icon(Icons.add, size: 16),
                             ),
                           ),
@@ -857,27 +862,30 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   vertical: 12,
                 ),
               ),
-              onChanged: (val) {
-                setState(() {
-                  _diskonValue =
-                      int.tryParse(val.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-                });
-              },
+              onChanged:
+                  (val) => setState(
+                    () =>
+                        _diskonValue =
+                            int.tryParse(
+                              val.replaceAll(RegExp(r'[^0-9]'), ''),
+                            ) ??
+                            0,
+                  ),
             ),
           ),
           const SizedBox(height: 16),
-
           _summaryRow("Sub Total", "Rp ${_formatRupiah(subTotal)}"),
-          _summaryRow("Pajak 12%", "Rp ${_formatRupiah(pajak)}"),
+          _summaryRow(
+            "Pajak ${_taxRate.toInt()}%",
+            "Rp ${_formatRupiah(pajak)}",
+          ),
           const SizedBox(height: 12),
-
           SizedBox(
             width: double.infinity,
             height: 1,
             child: CustomPaint(painter: DashedLinePainter()),
           ),
           const SizedBox(height: 12),
-
           _summaryRow(
             "Total",
             "Rp ${_formatRupiah(total)}",
@@ -886,33 +894,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
             valueColor: Colors.black,
           ),
           const SizedBox(height: 20),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                "Metode Pembayaran",
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text("QRIS"),
-                Icon(Icons.check_circle, color: Color(0xFF1976D2), size: 18),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
           _buildCheckoutButton(isShiftActive),
         ],
       ),
@@ -924,8 +905,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
       width: double.infinity,
       height: 48,
       child: ElevatedButton(
-        onPressed:
-            isShiftActive && cartItems.isNotEmpty ? _showCheckoutModal : null,
+        onPressed: () {
+          if (!isShiftActive) {
+            ShiftAlert.show(context);
+            return;
+          }
+          if (cartItems.isNotEmpty) _showCheckoutModal();
+        },
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF1976D2),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

@@ -8,6 +8,8 @@ import 'package:lottie/lottie.dart';
 class CheckoutModal extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
   final int subTotal;
+  final int diskon;
+  final int pajak;
   final int total;
   final VoidCallback onSuccess;
 
@@ -15,6 +17,8 @@ class CheckoutModal extends StatefulWidget {
     super.key,
     required this.cartItems,
     required this.subTotal,
+    required this.diskon,
+    required this.pajak,
     required this.total,
     required this.onSuccess,
   });
@@ -51,16 +55,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
       final res = await authProv.authenticatedGet(
         '/api/payment-methods?tenantId=$tenantId',
       );
-
       if (res.statusCode == 200) {
         final jsonRes = json.decode(res.body);
-
         if (jsonRes['success'] == true &&
             jsonRes['data'] != null &&
             jsonRes['data']['data'] != null) {
           setState(() {
             paymentMethods = jsonRes['data']['data'];
-
             if (paymentMethods.isNotEmpty) {
               selectedPaymentMethodId = paymentMethods[0]['id'].toString();
             }
@@ -68,27 +69,43 @@ class _CheckoutModalState extends State<CheckoutModal> {
         }
       }
     } catch (e) {
-      debugPrint("Error fetching payment methods: $e");
+      debugPrint(e.toString());
     }
   }
 
   Future<void> _processCheckout() async {
-    if (selectedPaymentMethodId == null) return;
+    if (selectedPaymentMethodId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Silakan pilih metode pembayaran")),
+      );
+      return;
+    }
+
+    if (_antrianController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Nomor antrian wajib diisi!"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
     final authProv = context.read<AuthProvider>();
 
     final body = {
       "tenantId": authProv.tenantId,
-      "tenantId": authProv.tenantId,
+      "outletId": authProv.outletId,
       "status": "complete",
       "subtotal": widget.subTotal.toString(),
-      "jumlahPajak": "0",
-      "jumlahDiskon": "0",
+      "jumlahPajak": widget.pajak.toString(),
+      "jumlahDiskon": widget.diskon.toString(),
       "diskonBreakdown": [],
       "paymentMethodId": selectedPaymentMethodId,
       "total": widget.total.toString(),
       "notes": _notesController.text,
-      "nomorAntrian": _antrianController.text,
+      "nomorAntrian": _antrianController.text.trim(),
       "completedAt": DateTime.now().toIso8601String(),
       "items":
           widget.cartItems
@@ -108,9 +125,9 @@ class _CheckoutModalState extends State<CheckoutModal> {
       final res = await authProv.authenticatedPost('/api/orders', body);
       if (res.statusCode == 201 || res.statusCode == 200) {
         if (mounted) {
-          Navigator.pop(context);
-          widget.onSuccess();
-          _showSuccessAnimation(context);
+          Navigator.pop(context); // Tutup modal checkout
+          widget.onSuccess(); // Reset keranjang
+          _showSuccessAnimation(context); // Tampilkan animasi
         }
       } else {
         if (mounted) {
@@ -131,13 +148,14 @@ class _CheckoutModalState extends State<CheckoutModal> {
   }
 
   void _showSuccessAnimation(BuildContext context) {
-    bool isAnimasiAktif = true;
+    bool isPopped = false;
 
     showDialog(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: true, // Bisa ditutup dengan klik luar
       builder: (BuildContext dialogContext) {
         return Dialog(
+          backgroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
@@ -167,16 +185,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
         );
       },
     ).then((_) {
-      isAnimasiAktif = false;
-      if (mounted) {
-        Navigator.pop(context);
-        widget.onSuccess();
-      }
+      isPopped = true; // Menandai jika sudah ditutup secara manual (klik luar)
     });
 
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (isAnimasiAktif && mounted) {
-        Navigator.pop(context);
+    // Auto close setelah 2 detik
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!isPopped && Navigator.canPop(context)) {
+        Navigator.of(context, rootNavigator: true).pop();
       }
     });
   }
@@ -184,9 +199,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
+      backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 600,
+        width: 700,
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -214,6 +230,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
+                      color: Colors.white,
                       border: Border.all(color: Colors.grey.shade200),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -225,36 +242,68 @@ class _CheckoutModalState extends State<CheckoutModal> {
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 12),
-                        ...widget.cartItems.map(
-                          (item) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  "${item['name']} x${item['qty']}",
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                Text(
-                                  "Rp ${_formatRupiah((item['price'] as int) * (item['qty'] as int))}",
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ],
-                            ),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 200),
+                          child: ListView(
+                            shrinkWrap: true,
+                            children:
+                                widget.cartItems
+                                    .map(
+                                      (item) => Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 4,
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                "${item['name']} x${item['qty']}",
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                            Text(
+                                              "Rp ${_formatRupiah((item['price'] as int) * (item['qty'] as int))}",
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
                           ),
                         ),
-                        const Divider(),
+                        const Divider(height: 24),
+                        _summaryRow("Subtotal", widget.subTotal),
+                        _summaryRow(
+                          "Diskon",
+                          widget.diskon,
+                          isNegative: true,
+                          color: Colors.red,
+                        ),
+                        _summaryRow("Pajak", widget.pajak),
+                        const SizedBox(height: 8),
+                        const Divider(thickness: 1.5),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text(
-                              "Total",
-                              style: TextStyle(fontWeight: FontWeight.bold),
+                              "Total Akhir",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
                             ),
                             Text(
                               "Rp ${_formatRupiah(widget.total)}",
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
+                                fontSize: 16,
                                 color: Colors.blue,
                               ),
                             ),
@@ -277,8 +326,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
                         value: selectedPaymentMethodId,
+                        dropdownColor: Colors.white,
                         items:
                             paymentMethods
                                 .map(
@@ -291,8 +342,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         onChanged:
                             (val) =>
                                 setState(() => selectedPaymentMethodId = val),
-                        decoration: const InputDecoration(
-                          contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                        decoration: InputDecoration(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -326,6 +382,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                         vertical: 8,
                                       ),
                                       decoration: BoxDecoration(
+                                        color: Colors.white,
                                         border: Border.all(
                                           color: Colors.grey.shade300,
                                         ),
@@ -341,22 +398,43 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                 .toList(),
                       ),
                       const SizedBox(height: 16),
-                      const Text(
-                        "Nomor Antrian",
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
+                      const Text.rich(
+                        TextSpan(
+                          text: "Nomor Antrian",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          children: [
+                            TextSpan(
+                              text: " *",
+                              style: TextStyle(color: Colors.red),
+                            ),
+                          ],
                         ),
                       ),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: _antrianController,
-                        decoration: const InputDecoration(
-                          hintText: "Masukkan nomor antrian",
+                        decoration: InputDecoration(
+                          hintText: "Contoh: A-01",
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          errorText:
+                              _antrianController.text.isEmpty && _isSubmitting
+                                  ? "Wajib diisi"
+                                  : null,
                         ),
+                        onChanged: (value) => setState(() {}),
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        "Catatan (Opsional)",
+                        "Catatan",
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
@@ -365,7 +443,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                       TextField(
                         controller: _notesController,
                         decoration: const InputDecoration(
-                          hintText: "Tambahkan catatan...",
+                          hintText: "Keterangan tambahan...",
                         ),
                       ),
                     ],
@@ -377,15 +455,25 @@ class _CheckoutModalState extends State<CheckoutModal> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                OutlinedButton(
+                TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text("Batal"),
+                  child: const Text(
+                    "Batal",
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton(
                   onPressed: _isSubmitting ? null : _processCheckout,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1976D2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   child:
                       _isSubmitting
@@ -398,14 +486,42 @@ class _CheckoutModalState extends State<CheckoutModal> {
                             ),
                           )
                           : const Text(
-                            "Simpan Pesanan",
-                            style: TextStyle(color: Colors.white),
+                            "Selesaikan Pembayaran",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                 ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _summaryRow(
+    String label,
+    int value, {
+    bool isNegative = false,
+    Color? color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          Text(
+            "${isNegative ? '-' : ''}Rp ${_formatRupiah(value)}",
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
