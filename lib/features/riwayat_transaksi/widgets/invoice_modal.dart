@@ -5,14 +5,14 @@ class InvoiceModal extends StatelessWidget {
   final Map<String, dynamic> orderData;
   final Map<String, dynamic> outletData;
   final List<dynamic> orderItems;
-  final Map<String, dynamic> tenantSettings; // Tambahkan parameter settings
+  final Map<String, dynamic> tenantSettings;
 
   const InvoiceModal({
     super.key,
     required this.orderData,
     required this.outletData,
     required this.orderItems,
-    required this.tenantSettings, // Wajib diisi
+    required this.tenantSettings,
   });
 
   String _formatCurrency(dynamic amount) {
@@ -54,7 +54,6 @@ class InvoiceModal extends StatelessWidget {
       orderData['completedAt'] ?? orderData['createdAt'],
     );
 
-    // Ambil data footer dari API settings
     final String receiptFooter =
         tenantSettings['receiptFooter'] ?? "Terima kasih atas kunjungan Anda!";
 

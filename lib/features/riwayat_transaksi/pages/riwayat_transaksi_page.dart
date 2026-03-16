@@ -47,12 +47,12 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
 
     try {
       final authProv = context.read<AuthProvider>();
-      final String? tenantId = authProv.tenantId;
       final String? outletId = authProv.outletId;
+      final String? tenantId = authProv.tenantId;
 
-      if (tenantId == null) {
+      if (outletId == null) {
         setState(() {
-          errorMessage = "Tenant ID tidak ditemukan";
+          errorMessage = "Outlet ID tidak ditemukan";
           isLoading = false;
         });
         return;
@@ -60,7 +60,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
 
       final responses = await Future.wait([
         authProv.authenticatedGet(
-          '/api/orders?tenantId=$tenantId&page=$page&limit=10',
+          '/api/orders?outletId=$outletId&page=$page&limit=10',
         ),
         authProv.authenticatedGet('/api/order-items?outletId=$outletId'),
       ]);
@@ -146,12 +146,12 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     dynamic orderData,
   ) async {
     final authProv = context.read<AuthProvider>();
-    final String? tenantId = authProv.tenantId;
-    final String? outletId =
-        orderData['outletId'] ?? orderData['outlet']?['id'];
+    final String? outletId = authProv.outletId;
+    final String? tenantId =
+        orderData['tenantId'] ?? orderData['tenant']?['Id'];
     final String? orderId = orderData['id']?.toString();
 
-    if (outletId == null || orderId == null || tenantId == null) {
+    if (outletId == null || orderId == null || outletId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Data tidak lengkap untuk memuat invoice'),

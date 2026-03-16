@@ -22,7 +22,7 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _isLoadingProducts = false;
   int _totalDiskon = 0;
   int _totalPajak = 0;
-  final _formKey = GlobalKey<FormState>(); // Key untuk validasi form
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void initState() {
@@ -43,18 +43,18 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
-    final tenantId = authProv.tenantId;
+    final outletId = authProv.outletId;
 
-    if (tenantId == null) return;
+    if (outletId == null) return;
 
     setState(() => _isLoadingProducts = true);
     try {
       final responses = await Future.wait([
-        authProv.authenticatedGet('/api/products?tenantId=$tenantId'),
-        authProv.authenticatedGet('/api/dashboard/stats?tenantId=$tenantId'),
+        authProv.authenticatedGet('/api/products?outletId=$outletId'),
+        authProv.authenticatedGet('/api/dashboard/stats?outletId=$outletId'),
         http.get(
           Uri.parse(
-            'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts/open?tenantId=$tenantId',
+            'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts/open?outletId=$outletId',
           ),
           headers: {
             'Content-Type': 'application/json',
@@ -139,7 +139,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   content: Form(
-                    key: _formKey, // Bungkus dengan Form
+                    key: _formKey,
                     child: SingleChildScrollView(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -186,7 +186,6 @@ class _DashboardPageState extends State<DashboardPage> {
                               ? null
                               : () async {
                                 if (_formKey.currentState!.validate()) {
-                                  // Validasi sebelum submit
                                   final auth = context.read<AuthProvider>();
                                   final success = await shiftProv.stopShift(
                                     auth,
@@ -202,7 +201,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                     ShiftStatusAlert.show(
                                       context,
                                       "Shift Berhasil Diakhiri",
-                                    ); // Munculkan Alert
+                                    );
                                   }
                                 }
                               },
@@ -224,7 +223,6 @@ class _DashboardPageState extends State<DashboardPage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
-        // Ganti TextField ke TextFormField
         controller: controller,
         keyboardType: type,
         enabled: enabled,
@@ -315,7 +313,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ShiftStatusAlert.show(
                                   context,
                                   "Shift Telah Dimulai",
-                                ); // Munculkan Alert
+                                );
                               }
                             } else {
                               _showClosingShiftModal();
