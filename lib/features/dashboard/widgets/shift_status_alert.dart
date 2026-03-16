@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class ShiftStatusAlert {
   static void show(BuildContext context, String message) {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    scaffoldMessenger.hideCurrentSnackBar(); // Hapus snackbar lama jika ada
+    scaffoldMessenger.hideCurrentSnackBar();
 
     scaffoldMessenger.showSnackBar(
       SnackBar(
