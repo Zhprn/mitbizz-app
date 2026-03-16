@@ -13,11 +13,16 @@ import 'routes/app_routes.dart';
 import 'features/auth/pages/login_page.dart';
 import 'features/dashboard/pages/dashboard_page.dart';
 import 'features/transaksi/pages/transaksi_page.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('id_ID', null);
-
+  await [
+    Permission.location,
+    Permission.bluetoothScan,
+    Permission.bluetoothConnect,
+  ].request();
   await BetterAuth.init(
     baseUrl: Uri(
       scheme: "https",
