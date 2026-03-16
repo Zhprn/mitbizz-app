@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import '../../../core/services/print_service.dart';
+import '../../../core/widgets/print_alert.dart';
 
 class InvoiceModal extends StatelessWidget {
   final Map<String, dynamic> orderData;
@@ -135,7 +138,7 @@ class InvoiceModal extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "$storePhone",
+                      storePhone,
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,
@@ -263,19 +266,16 @@ class InvoiceModal extends StatelessWidget {
                       item['total'] ??
                       item['subtotal'] ??
                       (qty * (price as num));
-                  String productName = '-';
-                  if (item['product'] is Map) {
-                    productName =
-                        item['product']['name'] ??
-                        item['product']['nama'] ??
-                        '-';
-                  } else {
-                    productName =
-                        item['name'] ??
-                        item['nama'] ??
-                        item['productName'] ??
-                        '-';
-                  }
+                  String productName =
+                      item['product'] is Map
+                          ? (item['product']['name'] ??
+                              item['product']['nama'] ??
+                              '-')
+                          : (item['name'] ??
+                              item['nama'] ??
+                              item['productName'] ??
+                              '-');
+
                   return Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -317,9 +317,7 @@ class InvoiceModal extends StatelessWidget {
                     ),
                   );
                 }).toList(),
-              const SizedBox(height: 12),
               const Divider(color: Color(0xFFEEEEEE)),
-              const SizedBox(height: 8),
               _buildSummaryRow("Subtotal:", _formatCurrency(subtotal)),
               _buildSummaryRow(
                 "Diskon :",
@@ -373,7 +371,35 @@ class InvoiceModal extends StatelessWidget {
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () {},
+                      onPressed: () async {
+                        List<BluetoothDevice> connected =
+                            FlutterBluePlus.connectedDevices;
+
+                        if (connected.isEmpty) {
+                          CustomPrintAlert.show(
+                            context,
+                            "Printer belum terhubung",
+                          );
+                          return;
+                        }
+
+                        try {
+                          CustomPrintAlert.show(context, "Sedang mencetak...");
+
+                          await PrintService.printInvoice(
+                            device: connected.first,
+                            orderData: orderData,
+                            outletData: outletData,
+                            orderItems: orderItems,
+                            tenantSettings: tenantSettings,
+                          );
+                        } catch (e) {
+                          CustomPrintAlert.show(
+                            context,
+                            "Gagal mencetak struk",
+                          );
+                        }
+                      },
                       icon: const Icon(
                         Icons.print,
                         size: 18,
