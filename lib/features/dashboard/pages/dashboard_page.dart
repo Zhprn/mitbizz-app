@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
+import '../widgets/shift_status_alert.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -21,6 +22,7 @@ class _DashboardPageState extends State<DashboardPage> {
   bool _isLoadingProducts = false;
   int _totalDiskon = 0;
   int _totalPajak = 0;
+  final _formKey = GlobalKey<FormState>(); // Key untuk validasi form
 
   @override
   void initState() {
@@ -41,10 +43,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
-    final shiftProv = context.read<ShiftProvider>();
     final tenantId = authProv.tenantId;
 
-    if (tenantId == null || tenantId == null) return;
+    if (tenantId == null) return;
 
     setState(() => _isLoadingProducts = true);
     try {
@@ -92,13 +93,13 @@ class _DashboardPageState extends State<DashboardPage> {
             final dt = DateTime.parse(data['openedAt']).toLocal();
             parsedStartTime = DateFormat('HH.mm.ss').format(dt);
           }
-          shiftProv.setShiftStatus(
+          context.read<ShiftProvider>().setShiftStatus(
             true,
             shiftId: data['id']?.toString(),
             startTime: parsedStartTime,
           );
         } else {
-          shiftProv.setShiftStatus(false);
+          context.read<ShiftProvider>().setShiftStatus(false);
         }
       }
     } catch (e) {
@@ -131,38 +132,43 @@ class _DashboardPageState extends State<DashboardPage> {
             builder:
                 (context, shiftProv, child) => AlertDialog(
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   title: const Text(
                     "Akhiri Shift",
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildField(
-                          "Uang Fisik",
-                          tutupController,
-                          TextInputType.number,
-                        ),
-                        _buildField(
-                          "Expected",
-                          expectedController,
-                          TextInputType.number,
-                        ),
-                        _buildField(
-                          "Selisih",
-                          selisihController,
-                          TextInputType.number,
-                          enabled: false,
-                        ),
-                        _buildField(
-                          "Catatan",
-                          catatanController,
-                          TextInputType.text,
-                        ),
-                      ],
+                  content: Form(
+                    key: _formKey, // Bungkus dengan Form
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildField(
+                            "Uang Fisik",
+                            tutupController,
+                            TextInputType.number,
+                            isRequired: true,
+                          ),
+                          _buildField(
+                            "Expected",
+                            expectedController,
+                            TextInputType.number,
+                            isRequired: true,
+                          ),
+                          _buildField(
+                            "Selisih",
+                            selisihController,
+                            TextInputType.number,
+                            enabled: false,
+                          ),
+                          _buildField(
+                            "Catatan",
+                            catatanController,
+                            TextInputType.text,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   actions: [
@@ -179,16 +185,26 @@ class _DashboardPageState extends State<DashboardPage> {
                           shiftProv.isProcessing
                               ? null
                               : () async {
-                                final auth = context.read<AuthProvider>();
-                                final success = await shiftProv
-                                    .stopShift(auth, {
+                                if (_formKey.currentState!.validate()) {
+                                  // Validasi sebelum submit
+                                  final auth = context.read<AuthProvider>();
+                                  final success = await shiftProv.stopShift(
+                                    auth,
+                                    {
                                       "jumlahTutup": tutupController.text,
                                       "jumlahExpected": expectedController.text,
                                       "selisih": selisihController.text,
                                       "catatan": catatanController.text,
-                                    });
-                                if (success && context.mounted)
-                                  Navigator.pop(context);
+                                    },
+                                  );
+                                  if (success && context.mounted) {
+                                    Navigator.pop(context);
+                                    ShiftStatusAlert.show(
+                                      context,
+                                      "Shift Berhasil Diakhiri",
+                                    ); // Munculkan Alert
+                                  }
+                                }
                               },
                       child: const Text("Akhiri"),
                     ),
@@ -203,13 +219,23 @@ class _DashboardPageState extends State<DashboardPage> {
     TextEditingController controller,
     TextInputType type, {
     bool enabled = true,
+    bool isRequired = false,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
+      child: TextFormField(
+        // Ganti TextField ke TextFormField
         controller: controller,
         keyboardType: type,
         enabled: enabled,
+        validator:
+            isRequired
+                ? (value) {
+                  if (value == null || value.isEmpty)
+                    return "$label wajib diisi";
+                  return null;
+                }
+                : null,
         decoration: InputDecoration(
           labelText: label,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -282,7 +308,15 @@ class _DashboardPageState extends State<DashboardPage> {
                           ? null
                           : () async {
                             if (!shiftProv.isShiftActive) {
-                              await shiftProv.startShift(authProv);
+                              bool success = await shiftProv.startShift(
+                                authProv,
+                              );
+                              if (success && context.mounted) {
+                                ShiftStatusAlert.show(
+                                  context,
+                                  "Shift Telah Dimulai",
+                                ); // Munculkan Alert
+                              }
                             } else {
                               _showClosingShiftModal();
                             }
@@ -370,9 +404,9 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildProdList(NumberFormat currency) {
-    if (_isLoadingProducts) {
+    if (_isLoadingProducts)
       return const Center(child: CircularProgressIndicator());
-    }
+    if (_products.isEmpty) return const Center(child: Text("Tidak ada produk"));
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
