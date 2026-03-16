@@ -80,9 +80,9 @@ class _StokPageState extends State<StokPage> {
 
   Future<void> _fetchInitialData() async {
     final authProv = context.read<AuthProvider>();
-    final outletId = authProv.outletId;
+    final tenantId = authProv.tenantId;
 
-    if (outletId == null) {
+    if (tenantId == null) {
       setState(() {
         _errorMessage = 'Outlet ID tidak tersedia';
         _isLoading = false;
@@ -96,9 +96,9 @@ class _StokPageState extends State<StokPage> {
 
     try {
       final responses = await Future.wait([
-        authProv.authenticatedGet('/api/categories?outletId=$outletId'),
+        authProv.authenticatedGet('/api/categories?tenantId=$tenantId'),
         authProv.authenticatedGet(
-          '/api/products?outletId=$outletId&limit=1000',
+          '/api/products?tenantId=$tenantId&limit=1000',
         ),
       ]);
 
@@ -159,7 +159,7 @@ class _StokPageState extends State<StokPage> {
 
   Future<void> _fetchProductsList({int page = 1}) async {
     final authProv = context.read<AuthProvider>();
-    final outletId = authProv.outletId;
+    final tenantId = authProv.tenantId;
 
     setState(() {
       _isLoading = true;
@@ -168,7 +168,7 @@ class _StokPageState extends State<StokPage> {
 
     try {
       String urlProduct =
-          '/api/products?outletId=$outletId&page=$page&limit=10';
+          '/api/products?tenantId=$tenantId&page=$page&limit=10';
 
       if (_searchQuery.isNotEmpty) {
         String formattedSearch = _searchQuery

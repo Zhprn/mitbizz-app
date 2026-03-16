@@ -46,10 +46,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
   Future<void> _fetchPaymentMethods() async {
     final authProv = context.read<AuthProvider>();
-    final outletId = authProv.outletId;
+    final tenantId = authProv.tenantId;
     try {
       final res = await authProv.authenticatedGet(
-        '/api/payment-methods?outletId=$outletId',
+        '/api/payment-methods?tenantId=$tenantId',
       );
 
       if (res.statusCode == 200) {
@@ -78,8 +78,8 @@ class _CheckoutModalState extends State<CheckoutModal> {
     final authProv = context.read<AuthProvider>();
 
     final body = {
-      "outletId": authProv.outletId,
-      "outletId": authProv.outletId,
+      "tenantId": authProv.tenantId,
+      "tenantId": authProv.tenantId,
       "status": "complete",
       "subtotal": widget.subTotal.toString(),
       "jumlahPajak": "0",

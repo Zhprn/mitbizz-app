@@ -42,18 +42,18 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
     final shiftProv = context.read<ShiftProvider>();
-    final outletId = authProv.outletId;
+    final tenantId = authProv.tenantId;
 
-    if (outletId == null || outletId == null) return;
+    if (tenantId == null || tenantId == null) return;
 
     setState(() => _isLoadingProducts = true);
     try {
       final responses = await Future.wait([
-        authProv.authenticatedGet('/api/products?outletId=$outletId'),
-        authProv.authenticatedGet('/api/dashboard/stats?outletId=$outletId'),
+        authProv.authenticatedGet('/api/products?tenantId=$tenantId'),
+        authProv.authenticatedGet('/api/dashboard/stats?tenantId=$tenantId'),
         http.get(
           Uri.parse(
-            'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts/open?outletId=$outletId',
+            'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts/open?tenantId=$tenantId',
           ),
           headers: {
             'Content-Type': 'application/json',
