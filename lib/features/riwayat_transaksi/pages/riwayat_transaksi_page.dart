@@ -47,8 +47,16 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
 
     try {
       final authProv = context.read<AuthProvider>();
-      final tenantId = authProv.tenantId;
-      final outletId = authProv.outletId;
+      final String? tenantId = authProv.tenantId;
+      final String? outletId = authProv.outletId;
+
+      if (tenantId == null) {
+        setState(() {
+          errorMessage = "Tenant ID tidak ditemukan";
+          isLoading = false;
+        });
+        return;
+      }
 
       final responses = await Future.wait([
         authProv.authenticatedGet(
@@ -137,13 +145,17 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     BuildContext context,
     dynamic orderData,
   ) async {
+    final authProv = context.read<AuthProvider>();
+    final String? tenantId = authProv.tenantId;
     final String? outletId =
         orderData['outletId'] ?? orderData['outlet']?['id'];
     final String? orderId = orderData['id']?.toString();
 
-    if (outletId == null || orderId == null) {
+    if (outletId == null || orderId == null || tenantId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Data Outlet atau Order ID tidak valid')),
+        const SnackBar(
+          content: Text('Data tidak lengkap untuk memuat invoice'),
+        ),
       );
       return;
     }
@@ -155,17 +167,17 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
     );
 
     try {
-      final authProv = context.read<AuthProvider>();
-
       final responses = await Future.wait([
         authProv.authenticatedGet('/api/outlets/$outletId'),
         authProv.authenticatedGet('/api/order-items?orderId=$orderId'),
+        authProv.authenticatedGet('/api/tenants/id/$tenantId'),
       ]);
 
       if (mounted) Navigator.pop(context);
 
       final outletResponse = responses[0];
       final itemsResponse = responses[1];
+      final tenantResponse = responses[2];
 
       if (outletResponse.statusCode == 200 && itemsResponse.statusCode == 200) {
         final Map<String, dynamic> outletJson = json.decode(
@@ -174,13 +186,20 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
         final outletData = outletJson['data'] ?? {};
 
         final Map<String, dynamic> itemsJson = json.decode(itemsResponse.body);
-
         List<dynamic> orderItems = [];
         if (itemsJson['data'] is List) {
           orderItems = itemsJson['data'];
         } else if (itemsJson['data'] != null &&
             itemsJson['data']['data'] is List) {
           orderItems = itemsJson['data']['data'];
+        }
+
+        Map<String, dynamic> tenantSettings = {};
+        if (tenantResponse.statusCode == 200) {
+          final Map<String, dynamic> tenantJson = json.decode(
+            tenantResponse.body,
+          );
+          tenantSettings = tenantJson['data']?['settings'] ?? {};
         }
 
         if (mounted) {
@@ -191,6 +210,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
                   orderData: orderData,
                   outletData: outletData,
                   orderItems: orderItems,
+                  tenantSettings: tenantSettings,
                 ),
           );
         }
@@ -218,7 +238,8 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
       } else {
         filteredData =
             transactionData.where((item) {
-              final invoice = item['orderNumber'].toString().toLowerCase();
+              final invoice =
+                  item['orderNumber']?.toString().toLowerCase() ?? '';
               final searchLower = query.toLowerCase();
               return invoice.contains(searchLower);
             }).toList();

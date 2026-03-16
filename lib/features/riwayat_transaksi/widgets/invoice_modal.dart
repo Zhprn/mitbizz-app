@@ -5,12 +5,14 @@ class InvoiceModal extends StatelessWidget {
   final Map<String, dynamic> orderData;
   final Map<String, dynamic> outletData;
   final List<dynamic> orderItems;
+  final Map<String, dynamic> tenantSettings; // Tambahkan parameter settings
 
   const InvoiceModal({
     super.key,
     required this.orderData,
     required this.outletData,
     required this.orderItems,
+    required this.tenantSettings, // Wajib diisi
   });
 
   String _formatCurrency(dynamic amount) {
@@ -27,7 +29,7 @@ class InvoiceModal extends StatelessWidget {
     if (dateStr == null || dateStr.isEmpty) return '-';
     try {
       DateTime dt = DateTime.parse(dateStr).toLocal();
-      return DateFormat('d MMMM yyyy pukul HH.mm', 'id_ID').format(dt);
+      return DateFormat("d MMMM yyyy 'Pukul' HH.mm", 'id_ID').format(dt);
     } catch (e) {
       return dateStr;
     }
@@ -41,8 +43,6 @@ class InvoiceModal extends StatelessWidget {
         outletData['companyAddress'] ?? outletData['alamat'] ?? '-';
     final String storePhone =
         outletData['companyPhone'] ?? outletData['noHp'] ?? '-';
-    // final String storeEmail =
-    //     outletData['companyEmail'] ?? outletData['email'] ?? '';
 
     final String branchName = outletData['name'] ?? outletData['nama'] ?? '-';
     final String branchAddress = outletData['alamat'] ?? '-';
@@ -53,6 +53,10 @@ class InvoiceModal extends StatelessWidget {
     final String date = _formatDate(
       orderData['completedAt'] ?? orderData['createdAt'],
     );
+
+    // Ambil data footer dari API settings
+    final String receiptFooter =
+        tenantSettings['receiptFooter'] ?? "Terima kasih atas kunjungan Anda!";
 
     String cashier = '-';
     if (orderData['cashier'] is Map) {
@@ -74,8 +78,6 @@ class InvoiceModal extends StatelessWidget {
           orderData['metodePembayaran'] ??
           '-';
     }
-
-    final List<dynamic> items = orderItems;
 
     final dynamic subtotal = orderData['subtotal'] ?? 0;
     final dynamic discount =
@@ -113,7 +115,6 @@ class InvoiceModal extends StatelessWidget {
                 ],
               ),
               const Divider(height: 32, color: Color(0xFFEEEEEE)),
-
               Center(
                 child: Column(
                   children: [
@@ -145,7 +146,6 @@ class InvoiceModal extends StatelessWidget {
                 ),
               ),
               const Divider(height: 32, color: Color(0xFFEEEEEE)),
-
               Text(
                 branchName,
                 style: const TextStyle(
@@ -164,7 +164,6 @@ class InvoiceModal extends StatelessWidget {
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
               const Divider(height: 32, color: Color(0xFFEEEEEE)),
-
               Row(
                 children: [
                   Expanded(
@@ -190,7 +189,6 @@ class InvoiceModal extends StatelessWidget {
                 ],
               ),
               const Divider(height: 32, color: Color(0xFFEEEEEE)),
-
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -247,8 +245,7 @@ class InvoiceModal extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-
-              if (items.isEmpty)
+              if (orderItems.isEmpty)
                 const Center(
                   child: Padding(
                     padding: EdgeInsets.all(16.0),
@@ -259,14 +256,14 @@ class InvoiceModal extends StatelessWidget {
                   ),
                 )
               else
-                ...items.map((item) {
+                ...orderItems.map((item) {
                   final int qty = item['qty'] ?? item['quantity'] ?? 0;
-                  final dynamic price = item['price'] ?? item['harga'] ?? 0;
+                  final dynamic price =
+                      item['price'] ?? item['hargaSatuan'] ?? 0;
                   final dynamic itemTotal =
                       item['total'] ??
                       item['subtotal'] ??
                       (qty * (price as num));
-
                   String productName = '-';
                   if (item['product'] is Map) {
                     productName =
@@ -280,7 +277,6 @@ class InvoiceModal extends StatelessWidget {
                         item['productName'] ??
                         '-';
                   }
-
                   return Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -322,11 +318,9 @@ class InvoiceModal extends StatelessWidget {
                     ),
                   );
                 }).toList(),
-
               const SizedBox(height: 12),
               const Divider(color: Color(0xFFEEEEEE)),
               const SizedBox(height: 8),
-
               _buildSummaryRow("Subtotal:", _formatCurrency(subtotal)),
               _buildSummaryRow(
                 "Diskon :",
@@ -336,7 +330,6 @@ class InvoiceModal extends StatelessWidget {
               ),
               _buildSummaryRow("Pajak :", _formatCurrency(tax)),
               const Divider(height: 32, color: Color(0xFFEEEEEE)),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -354,12 +347,12 @@ class InvoiceModal extends StatelessWidget {
                 ],
               ),
               const Divider(height: 32, color: Color(0xFFEEEEEE)),
-
               Center(
                 child: Column(
                   children: [
                     Text(
-                      "Terima kasih atas kunjungan Anda!",
+                      receiptFooter,
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade600,
@@ -377,7 +370,6 @@ class InvoiceModal extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-
               Row(
                 children: [
                   Expanded(
