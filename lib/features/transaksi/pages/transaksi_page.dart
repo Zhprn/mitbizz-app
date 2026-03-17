@@ -325,6 +325,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: const CustomAppBar(activeMenu: "Transaksi"),
+      resizeToAvoidBottomInset: false,
       body:
           isMobile
               ? Column(
