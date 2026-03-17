@@ -116,12 +116,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
       if (searchQuery.isNotEmpty) {
         String formattedSearch = searchQuery
             .split(' ')
-            .map(
-              (word) =>
-                  word.isEmpty
-                      ? ''
-                      : word[0].toUpperCase() + word.substring(1).toLowerCase(),
-            )
+            .map((word) {
+              return word.isEmpty
+                  ? ''
+                  : word[0].toUpperCase() + word.substring(1).toLowerCase();
+            })
             .join(' ');
         urlProduct += '&search=$formattedSearch';
       }
@@ -131,6 +130,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
       ]);
       final catRes = responses[0];
       final prodRes = responses[1];
+
       if (catRes.statusCode == 200 && prodRes.statusCode == 200) {
         final catJson = json.decode(catRes.body);
         final prodJson = json.decode(prodRes.body);
@@ -142,24 +142,32 @@ class _TransaksiPageState extends State<TransaksiPage> {
             (prodJson['data'] is Map && prodJson['data']['data'] != null)
                 ? prodJson['data']['data']
                 : [];
+
         int metaTotalPages = 1;
         if (prodJson['data'] is Map && prodJson['data']['meta'] != null)
           metaTotalPages = prodJson['data']['meta']['totalPages'] ?? 1;
+
         List<Map<String, dynamic>> formattedProducts = [];
         for (var p in rawProducts) {
           double priceDouble =
               double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0.0;
           int stock = p['stock'] ?? 0;
+          bool enableTracking = p['enableStockTracking'] ?? false;
+
+          bool isAvailable = enableTracking ? (stock > 0) : true;
+
           formattedProducts.add({
             "id": p['id'],
             "name": p['nama'] ?? 'Unnamed Product',
             "kode": p['sku'] ?? 'FD-001',
             "price": priceDouble.round(),
             "category": p['category']?['nama'] ?? 'Uncategorized',
-            "isAvailable": stock >= 1,
+            "isAvailable": isAvailable,
             "stock": stock,
+            "enableStockTracking": enableTracking,
           });
         }
+
         int totalSemua = 0;
         List<Map<String, dynamic>> tempCategories = [];
         for (var c in rawCategories) {
@@ -169,6 +177,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
           totalSemua += count;
           tempCategories.add({"id": catId, "name": catName, "count": count});
         }
+
         if (mounted) {
           setState(() {
             if (categories.isEmpty || selectedCategory == "Semua")
@@ -206,13 +215,21 @@ class _TransaksiPageState extends State<TransaksiPage> {
     }
     if (!product['isAvailable']) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Produk sedang tidak tersedia (Stok 0)')),
+        const SnackBar(content: Text('Produk sedang tidak tersedia')),
       );
       return;
     }
     setState(() {
       int index = cartItems.indexWhere((item) => item['id'] == product['id']);
       if (index != -1) {
+        if (product['enableStockTracking'] == true) {
+          if (cartItems[index]['qty'] >= product['stock']) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Stok tidak mencukupi')),
+            );
+            return;
+          }
+        }
         cartItems[index]['qty']++;
       } else {
         cartItems.add({...product, 'qty': 1});
@@ -222,7 +239,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   int get subTotal => cartItems.fold(
     0,
-    (sum, item) => sum + ((item['price'] as num).toInt() * item['qty'] as int),
+    (sum, item) =>
+        sum + ((item['price'] as num).toInt() * (item['qty'] as int)),
   );
   int get diskon => _diskonValue;
   int get pajak => ((subTotal - diskon) * (_taxRate / 100)).toInt();
@@ -482,6 +500,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildProductCard(Map<String, dynamic> product) {
     bool isAvailable = product['isAvailable'] == true;
+    bool tracking = product['enableStockTracking'] == true;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -591,10 +611,10 @@ class _TransaksiPageState extends State<TransaksiPage> {
                           ),
                         ),
                         Text(
-                          "Stok: ${product['stock']}",
+                          tracking ? "Stok: ${product['stock']}" : "Stok: ∞",
                           style: TextStyle(
                             color:
-                                (product['stock'] ?? 0) < 5
+                                tracking && (product['stock'] ?? 0) < 5
                                     ? Colors.red
                                     : Colors.grey.shade600,
                             fontSize: 11,
@@ -810,7 +830,20 @@ class _TransaksiPageState extends State<TransaksiPage> {
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           InkWell(
-                            onTap: () => setState(() => item['qty']++),
+                            onTap: () {
+                              setState(() {
+                                if (item['enableStockTracking'] == true &&
+                                    item['qty'] >= item['stock']) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Batas stok tercapai'),
+                                    ),
+                                  );
+                                } else {
+                                  item['qty']++;
+                                }
+                              });
+                            },
                             child: const Padding(
                               padding: EdgeInsets.all(8),
                               child: Icon(Icons.add, size: 16),
