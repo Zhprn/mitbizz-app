@@ -14,9 +14,11 @@ import 'features/auth/pages/login_page.dart';
 import 'features/dashboard/pages/dashboard_page.dart';
 import 'features/transaksi/pages/transaksi_page.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await dotenv.load(fileName: ".env");
   await initializeDateFormatting('id_ID', null);
   await [
     Permission.location,
@@ -24,10 +26,7 @@ void main() async {
     Permission.bluetoothConnect,
   ].request();
   await BetterAuth.init(
-    baseUrl: Uri(
-      scheme: "https",
-      host: "backend-pos-508482854424.us-central1.run.app",
-    ),
+    baseUrl: Uri(scheme: "https", host: dotenv.env['BASE_URL']),
   );
 
   runApp(

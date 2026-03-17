@@ -44,6 +44,7 @@ dependencies:
   flutter_blue_plus: ^1.31.0
   esc_pos_utils_plus: ^2.0.0
   permission_handler: ^12.0.1
+  flutter_dotenv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -78,6 +79,7 @@ flutter:
     - assets/images/menu3.png
     - assets/images/menu4.png
     - assets/animation/succes_animation.json
+    - .env
 
   fonts:
     - family: Plus Jakarta Sans

@@ -311,7 +311,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildStat(String val, String label, IconData icon) {
     return Container(
-      width: (MediaQuery.of(context).size.width - 70) / 2,
+      width: (MediaQuery.of(context).size.width - 110) / 2.01,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         border: Border.all(color: Colors.grey.shade200),
