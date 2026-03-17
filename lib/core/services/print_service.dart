@@ -1,98 +1,176 @@
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:intl/intl.dart';
+import 'dart:io';
+import 'dart:async';
 
 class PrintService {
+  static String formatCurrency(dynamic amount) {
+    if (amount == null) return "0";
+    double value = double.tryParse(amount.toString()) ?? 0;
+    return NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: '',
+      decimalDigits: 0,
+    ).format(value).trim();
+  }
+
   static Future<void> printInvoice({
     required BluetoothDevice device,
     required Map<String, dynamic> orderData,
     required Map<String, dynamic> outletData,
     required List<dynamic> orderItems,
-    required Map<String, dynamic> tenantSettings,
   }) async {
-    final profile = await CapabilityProfile.load();
-    final generator = Generator(PaperSize.mm58, profile);
-    List<int> bytes = [];
+    try {
+      if (!device.isConnected) {
+        await device.connect(timeout: const Duration(seconds: 5));
+      }
 
-    final String storeName =
-        outletData['companyName'] ?? outletData['nama'] ?? 'MitBiz Store';
-    final String storeAddress =
-        outletData['companyAddress'] ?? outletData['alamat'] ?? '-';
+      if (Platform.isAndroid) {
+        try {
+          await device.requestMtu(223);
+          await Future.delayed(const Duration(milliseconds: 300));
+        } catch (_) {}
+      }
 
-    bytes += generator.text(
-      storeName,
-      styles: const PosStyles(
-        align: PosAlign.center,
-        bold: true,
-        height: PosTextSize.size2,
-        width: PosTextSize.size2,
-      ),
-    );
-    bytes += generator.text(
-      storeAddress,
-      styles: const PosStyles(align: PosAlign.center),
-    );
-    bytes += generator.hr();
+      final profile = await CapabilityProfile.load(name: 'default');
+      final generator = Generator(PaperSize.mm58, profile);
+      List<int> bytes = [];
 
-    final String invoiceNo =
-        orderData['orderNumber'] ?? orderData['invoiceNumber'] ?? '-';
-    bytes += generator.text("Invoice : $invoiceNo");
-    bytes += generator.text(
-      "Tanggal : ${DateFormat('dd/MM/yy HH:mm').format(DateTime.now())}",
-    );
-    bytes += generator.hr();
+      // 1. HEADER (Disesuaikan dengan field 'nama' dan 'alamat')
+      bytes += generator.reset();
+      bytes += generator.text(
+        outletData['nama'] ?? 'STORE',
+        styles: const PosStyles(
+          align: PosAlign.center,
+          bold: true,
+          height: PosTextSize.size2,
+          width: PosTextSize.size2,
+        ),
+      );
+      bytes += generator.text(
+        outletData['alamat'] ?? '-',
+        styles: const PosStyles(align: PosAlign.center),
+      );
+      bytes += generator.hr();
 
-    for (var item in orderItems) {
-      String productName =
-          item['product'] is Map
-              ? (item['product']['name'] ?? item['product']['nama'] ?? '-')
-              : (item['name'] ?? item['nama'] ?? item['productName'] ?? '-');
+      // 2. INFO TRANSAKSI
+      bytes += generator.text("Invoice : ${orderData['orderNumber'] ?? '-'}");
+      bytes += generator.text("Kasir   : ${orderData['cashierName'] ?? '-'}");
+      bytes += generator.text(
+        "Customer: ${orderData['customerName'] ?? 'Guest'}",
+      );
+      bytes += generator.text(
+        "Waktu   : ${DateFormat('dd/MM/yy HH:mm').format(DateTime.now())}",
+      );
+      bytes += generator.hr();
 
-      int qty = item['qty'] ?? item['quantity'] ?? 1;
-      int price = int.tryParse(item['price']?.toString() ?? '0') ?? 0;
+      // 3. ITEMS
+      for (var item in orderItems) {
+        String productName = "-";
+        if (item['product'] != null) {
+          productName =
+              item['product']['nama'] ?? item['product']['name'] ?? "-";
+        } else {
+          productName = item['nama'] ?? item['name'] ?? "-";
+        }
 
-      bytes += generator.text(productName);
+        int qty = int.tryParse(item['quantity']?.toString() ?? '1') ?? 1;
+        String rawHargaSatuan = item['hargaSatuan']?.toString() ?? '0';
+        String rawTotal = item['total']?.toString() ?? '0';
+
+        bytes += generator.text(productName);
+        bytes += generator.row([
+          PosColumn(
+            text: "  $qty x ${formatCurrency(rawHargaSatuan)}",
+            width: 7,
+          ),
+          PosColumn(
+            text: formatCurrency(rawTotal),
+            width: 5,
+            styles: const PosStyles(align: PosAlign.right),
+          ),
+        ]);
+      }
+      bytes += generator.hr();
+
+      // 4. FOOTER / TOTAL
       bytes += generator.row([
-        PosColumn(text: "  $qty x $price", width: 8),
+        PosColumn(text: "TOTAL", width: 6, styles: const PosStyles(bold: true)),
         PosColumn(
-          text: "${qty * price}",
-          width: 4,
+          text: formatCurrency(orderData['total']),
+          width: 6,
+          styles: const PosStyles(align: PosAlign.right, bold: true),
+        ),
+      ]);
+
+      bytes += generator.row([
+        PosColumn(text: "BAYAR", width: 6),
+        PosColumn(
+          text: formatCurrency(orderData['tunai']),
+          width: 6,
           styles: const PosStyles(align: PosAlign.right),
         ),
       ]);
+
+      bytes += generator.row([
+        PosColumn(text: "KEMBALI", width: 6),
+        PosColumn(
+          text: formatCurrency(orderData['kembalian']),
+          width: 6,
+          styles: const PosStyles(align: PosAlign.right),
+        ),
+      ]);
+
+      bytes += generator.feed(1);
+
+      // 5. DYNAMIC FOOTER (Dari respond outlet > tenant > settings > receiptFooter)
+      String footerText = "Terima Kasih";
+      if (outletData['tenant'] != null &&
+          outletData['tenant']['settings'] != null &&
+          outletData['tenant']['settings']['receiptFooter'] != null) {
+        footerText = outletData['tenant']['settings']['receiptFooter'];
+      }
+
+      bytes += generator.text(
+        footerText,
+        styles: const PosStyles(align: PosAlign.center),
+      );
+
+      bytes += generator.feed(3);
+      bytes += generator.cut();
+
+      await _sendBytes(device, bytes);
+    } catch (e) {
+      throw "Print Gagal: $e";
     }
-    bytes += generator.hr();
+  }
 
-    bytes += generator.row([
-      PosColumn(text: "TOTAL", width: 6, styles: const PosStyles(bold: true)),
-      PosColumn(
-        text: "Rp ${orderData['total'] ?? 0}",
-        width: 6,
-        styles: const PosStyles(align: PosAlign.right, bold: true),
-      ),
-    ]);
+  static Future<void> _sendBytes(
+    BluetoothDevice device,
+    List<int> bytes,
+  ) async {
+    List<BluetoothService> services = await device.discoverServices();
+    BluetoothCharacteristic? writeChar;
 
-    bytes += generator.feed(1);
-    bytes += generator.text(
-      tenantSettings['receiptFooter'] ?? "Terima Kasih",
-      styles: const PosStyles(align: PosAlign.center),
-    );
-    bytes += generator.feed(2);
-    bytes += generator.cut();
-
-    try {
-      List<BluetoothService> services = await device.discoverServices();
-      for (var service in services) {
-        for (var characteristic in service.characteristics) {
-          if (characteristic.properties.write ||
-              characteristic.properties.writeWithoutResponse) {
-            await characteristic.write(bytes, withoutResponse: true);
-            return;
-          }
+    for (var service in services) {
+      for (var char in service.characteristics) {
+        if (char.properties.write || char.properties.writeWithoutResponse) {
+          writeChar = char;
+          break;
         }
       }
-    } catch (e) {
-      throw Exception("Gagal mengirim data ke printer: $e");
+    }
+
+    if (writeChar != null) {
+      const int chunkSize = 20;
+      for (int i = 0; i < bytes.length; i += chunkSize) {
+        int end = (i + chunkSize < bytes.length) ? i + chunkSize : bytes.length;
+        await writeChar.write(bytes.sublist(i, end), withoutResponse: true);
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+    } else {
+      throw "Karakteristik Write tidak ditemukan!";
     }
   }
 }
