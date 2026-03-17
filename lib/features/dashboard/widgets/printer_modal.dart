@@ -12,7 +12,8 @@ class PrinterModal extends StatefulWidget {
 class _PrinterModalState extends State<PrinterModal> {
   List<ScanResult> _scanResults = [];
   bool _isScanning = false;
-  late StreamSubscription<List<ScanResult>> _scanSubscription;
+  StreamSubscription<List<ScanResult>>? _scanSubscription;
+  StreamSubscription<bool>? _isScanningSubscription;
 
   @override
   void initState() {
@@ -21,6 +22,7 @@ class _PrinterModalState extends State<PrinterModal> {
   }
 
   void _startScan() async {
+    // 1. Cek dukungan Bluetooth
     if (await FlutterBluePlus.isSupported == false) return;
 
     setState(() {
@@ -28,48 +30,72 @@ class _PrinterModalState extends State<PrinterModal> {
       _scanResults.clear();
     });
 
+    // 2. Langganan hasil scan
+    _scanSubscription?.cancel();
+    _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+      if (mounted) {
+        setState(() {
+          // Filter: Ambil yang punya nama (baik platformName atau advName)
+          _scanResults =
+              results
+                  .where(
+                    (r) =>
+                        r.device.platformName.isNotEmpty ||
+                        r.advertisementData.advName.isNotEmpty,
+                  )
+                  .toList();
+        });
+      }
+    });
+
+    // 3. Langganan status scanning
+    _isScanningSubscription?.cancel();
+    _isScanningSubscription = FlutterBluePlus.isScanning.listen((scanning) {
+      if (mounted) setState(() => _isScanning = scanning);
+    });
+
     try {
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
     } catch (e) {
       debugPrint("Scan Error: $e");
     }
-
-    _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
-      if (mounted) {
-        setState(() {
-          _scanResults =
-              results.where((r) => r.device.platformName.isNotEmpty).toList();
-        });
-      }
-    });
-
-    FlutterBluePlus.isScanning.listen((scanning) {
-      if (mounted && !scanning) setState(() => _isScanning = false);
-    });
   }
 
   void _connectToDevice(BluetoothDevice device) async {
     try {
+      // BERHENTIKAN SCAN sebelum connect (Penting!)
+      await FlutterBluePlus.stopScan();
+
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
-      await device.connect();
+      // Proses Koneksi
+      await device.connect(
+        timeout: const Duration(seconds: 10),
+        autoConnect: false,
+      );
+
+      // Tunggu sebentar agar servis printer terdeteksi
+      await device.discoverServices();
 
       if (mounted) {
-        Navigator.pop(context);
-        Navigator.pop(context);
+        Navigator.pop(context); // Tutup Loading
+        Navigator.pop(context); // Tutup Modal
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Terhubung ke ${device.platformName}"),
+            content: Text(
+              "Terhubung ke ${device.platformName.isEmpty ? 'Printer' : device.platformName}",
+            ),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
-      Navigator.pop(context);
+      if (mounted) Navigator.pop(context); // Tutup Loading
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Gagal konek: $e"), backgroundColor: Colors.red),
       );
@@ -78,7 +104,8 @@ class _PrinterModalState extends State<PrinterModal> {
 
   @override
   void dispose() {
-    _scanSubscription.cancel();
+    _scanSubscription?.cancel();
+    _isScanningSubscription?.cancel();
     FlutterBluePlus.stopScan();
     super.dispose();
   }
@@ -89,7 +116,7 @@ class _PrinterModalState extends State<PrinterModal> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
         padding: const EdgeInsets.all(20),
-        width: 400,
+        constraints: const BoxConstraints(maxWidth: 400), // Lebih responsif
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -97,45 +124,55 @@ class _PrinterModalState extends State<PrinterModal> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  "Pilih Printer Bluetooth",
+                  "Pilih Printer POS 58",
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
-                if (_isScanning)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  IconButton(
-                    onPressed: _startScan,
-                    icon: const Icon(Icons.refresh, color: Colors.blue),
-                  ),
+                _isScanning
+                    ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : IconButton(
+                      onPressed: _startScan,
+                      icon: const Icon(Icons.refresh, color: Colors.blue),
+                    ),
               ],
             ),
             const Divider(),
-
-            SizedBox(
-              height: 300,
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 300),
               child:
                   _scanResults.isEmpty
                       ? Center(
-                        child: Text(
-                          _isScanning
-                              ? "Mencari perangkat..."
-                              : "Tidak ada printer ditemukan",
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Text(
+                            _isScanning
+                                ? "Mencari perangkat..."
+                                : "Tidak ada printer ditemukan",
+                          ),
                         ),
                       )
                       : ListView.builder(
+                        shrinkWrap: true,
                         itemCount: _scanResults.length,
                         itemBuilder: (context, index) {
-                          final device = _scanResults[index].device;
+                          final result = _scanResults[index];
+                          final device = result.device;
+                          final String displayName =
+                              device.platformName.isNotEmpty
+                                  ? device.platformName
+                                  : (result.advertisementData.advName.isNotEmpty
+                                      ? result.advertisementData.advName
+                                      : "Unknown Device");
+
                           return ListTile(
                             leading: const Icon(
                               Icons.print,
                               color: Colors.blueGrey,
                             ),
-                            title: Text(device.platformName),
+                            title: Text(displayName),
                             subtitle: Text(device.remoteId.toString()),
                             trailing: const Icon(
                               Icons.link,
@@ -146,7 +183,6 @@ class _PrinterModalState extends State<PrinterModal> {
                         },
                       ),
             ),
-
             const SizedBox(height: 10),
             TextButton(
               onPressed: () => Navigator.pop(context),
