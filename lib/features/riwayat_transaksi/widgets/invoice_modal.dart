@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import '../../../core/services/print_service.dart';
-import '../../../core/widgets/print_alert.dart';
 
 class InvoiceModal extends StatelessWidget {
   final Map<String, dynamic> orderData;
@@ -367,77 +364,23 @@ class InvoiceModal extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        List<BluetoothDevice> connected =
-                            FlutterBluePlus.connectedDevices;
-
-                        if (connected.isEmpty) {
-                          CustomPrintAlert.show(
-                            context,
-                            "Printer belum terhubung",
-                          );
-                          return;
-                        }
-
-                        try {
-                          CustomPrintAlert.show(context, "Sedang mencetak...");
-
-                          await PrintService.printInvoice(
-                            device: connected.first,
-                            orderData: orderData,
-                            outletData: outletData,
-                            orderItems: orderItems,
-                            tenantSettings: tenantSettings,
-                          );
-                        } catch (e) {
-                          CustomPrintAlert.show(
-                            context,
-                            "Gagal mencetak struk",
-                          );
-                        }
-                      },
-                      icon: const Icon(
-                        Icons.print,
-                        size: 18,
-                        color: Colors.white,
-                      ),
-                      label: const Text(
-                        "Cetak",
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1976D2),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        elevation: 0,
-                      ),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF8F9FA),
+                    side: BorderSide.none,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF8F9FA),
-                        side: BorderSide.none,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        "Tutup",
-                        style: TextStyle(color: Colors.black87),
-                      ),
-                    ),
+                  child: const Text(
+                    "Tutup",
+                    style: TextStyle(color: Colors.black87),
                   ),
-                ],
+                ),
               ),
             ],
           ),
