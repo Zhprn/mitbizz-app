@@ -3,12 +3,15 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'auth_provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ShiftProvider extends ChangeNotifier {
   bool _isShiftActive = false;
   String? _startTime;
   String? _activeShiftId;
   bool _isProcessing = false;
+
+  final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
 
   bool get isShiftActive => _isShiftActive;
   String? get startTime => _startTime;
@@ -27,9 +30,7 @@ class ShiftProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final response = await http.post(
-        Uri.parse(
-          'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts',
-        ),
+        Uri.parse('$_baseUrl/api/cash-shifts'),
         headers: {
           'Content-Type': 'application/json',
           'Cookie': auth.sessionCookie ?? '',
@@ -68,9 +69,7 @@ class ShiftProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final response = await http.put(
-        Uri.parse(
-          'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts/$_activeShiftId',
-        ),
+        Uri.parse('$_baseUrl/api/cash-shifts/$_activeShiftId'),
         headers: {
           'Content-Type': 'application/json',
           'Cookie': auth.sessionCookie ?? '',

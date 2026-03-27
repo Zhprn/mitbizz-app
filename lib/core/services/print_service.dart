@@ -37,7 +37,6 @@ class PrintService {
       final generator = Generator(PaperSize.mm58, profile);
       List<int> bytes = [];
 
-      // 1. HEADER (Disesuaikan dengan field 'nama' dan 'alamat')
       bytes += generator.reset();
       bytes += generator.text(
         outletData['nama'] ?? 'STORE',
@@ -54,7 +53,6 @@ class PrintService {
       );
       bytes += generator.hr();
 
-      // 2. INFO TRANSAKSI
       bytes += generator.text("Invoice : ${orderData['orderNumber'] ?? '-'}");
       bytes += generator.text("Kasir   : ${orderData['cashierName'] ?? '-'}");
       bytes += generator.text(
@@ -65,7 +63,6 @@ class PrintService {
       );
       bytes += generator.hr();
 
-      // 3. ITEMS
       for (var item in orderItems) {
         String productName = "-";
         if (item['product'] != null) {
@@ -94,7 +91,6 @@ class PrintService {
       }
       bytes += generator.hr();
 
-      // 4. FOOTER / TOTAL
       bytes += generator.row([
         PosColumn(text: "TOTAL", width: 6, styles: const PosStyles(bold: true)),
         PosColumn(
@@ -124,7 +120,6 @@ class PrintService {
 
       bytes += generator.feed(1);
 
-      // 5. DYNAMIC FOOTER (Dari respond outlet > tenant > settings > receiptFooter)
       String footerText = "Terima Kasih";
       if (outletData['tenant'] != null &&
           outletData['tenant']['settings'] != null &&

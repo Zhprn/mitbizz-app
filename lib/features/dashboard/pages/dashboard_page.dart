@@ -10,6 +10,8 @@ import '../../../core/widgets/custom_app_bar.dart';
 import '../widgets/shift_status_alert.dart';
 import '../widgets/printer_modal.dart';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
   @override
@@ -20,6 +22,8 @@ class _DashboardPageState extends State<DashboardPage> {
   DateTime _now = DateTime.now();
   late Timer _timer;
   List<dynamic> _products = [];
+  final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
+
   bool _isLoadingProducts = false;
   int _totalDiskon = 0;
   int _totalPajak = 0;
@@ -48,12 +52,9 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() => _isLoadingProducts = true);
     try {
       final responses = await Future.wait([
-        authProv.authenticatedGet('/api/products?outletId=$outletId'),
         authProv.authenticatedGet('/api/dashboard/stats?outletId=$outletId'),
         http.get(
-          Uri.parse(
-            'https://backend-pos-508482854424.us-central1.run.app/api/cash-shifts/open?outletId=$outletId',
-          ),
+          Uri.parse('$_baseUrl/api/cash-shifts/open?outletId=$outletId'),
           headers: {
             'Content-Type': 'application/json',
             'Cookie': authProv.sessionCookie ?? '',
@@ -61,8 +62,11 @@ class _DashboardPageState extends State<DashboardPage> {
         ),
       ]);
 
-      if (responses[1].statusCode == 200) {
-        final statsData = json.decode(responses[1].body);
+      final statsRes = responses[0];
+      final shiftRes = responses[1];
+
+      if (statsRes.statusCode == 200) {
+        final statsData = json.decode(statsRes.body);
         if (statsData['success'] == true && statsData['data'] != null) {
           final data = statsData['data'];
           setState(() {
@@ -76,14 +80,10 @@ class _DashboardPageState extends State<DashboardPage> {
         }
       }
 
-      if (responses[0].statusCode == 200) {
-        final prodData = json.decode(responses[0].body);
-        setState(() => _products = prodData['data']?['data'] ?? []);
-      }
-
-      if (responses[2].statusCode == 200) {
-        final shiftData = json.decode(responses[2].body);
+      if (shiftRes.statusCode == 200) {
+        final shiftData = json.decode(shiftRes.body);
         final data = shiftData['data'];
+
         if (data != null && data['status'] == 'buka') {
           final dt = DateTime.parse(data['openedAt']).toLocal();
           context.read<ShiftProvider>().setShiftStatus(
@@ -96,7 +96,7 @@ class _DashboardPageState extends State<DashboardPage> {
         }
       }
     } catch (e) {
-      debugPrint("Error Fetch: $e");
+      debugPrint("Error Fetch Dashboard: $e");
     } finally {
       if (mounted) setState(() => _isLoadingProducts = false);
     }
@@ -244,14 +244,6 @@ class _DashboardPageState extends State<DashboardPage> {
                     ],
                   ),
                   const SizedBox(height: 24),
-
-                  const SizedBox(height: 32),
-                  const Text(
-                    "Daftar Produk",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildProdList(formatCurrency),
                 ],
               ),
             ),
@@ -330,30 +322,6 @@ class _DashboardPageState extends State<DashboardPage> {
           Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         ],
       ),
-    );
-  }
-
-  Widget _buildProdList(NumberFormat currency) {
-    if (_isLoadingProducts)
-      return const Center(child: CircularProgressIndicator());
-    if (_products.isEmpty) return const Center(child: Text("Tidak ada produk"));
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _products.length,
-      itemBuilder: (context, i) {
-        final p = _products[i];
-        return ListTile(
-          leading: const Icon(Icons.inventory_2_outlined, color: Colors.blue),
-          title: Text(
-            p['nama'] ?? '',
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-          ),
-          subtitle: Text(
-            currency.format(double.tryParse(p['hargaJual'].toString()) ?? 0),
-          ),
-        );
-      },
     );
   }
 }

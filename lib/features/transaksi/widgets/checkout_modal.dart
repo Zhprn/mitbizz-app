@@ -45,6 +45,12 @@ class _CheckoutModalState extends State<CheckoutModal> {
   String _finalCustomerName = 'Guest';
   int _finalJumlahBayar = 0;
   int _finalKembalian = 0;
+  String _orderType = 'Dine In';
+
+  int _localSubTotal = 0;
+  int _localTotal = 0;
+  int _localPajak = 0;
+  int _localDiskon = 0;
 
   Map<String, dynamic> _outletData = {};
   Map<String, dynamic> _tenantSettings = {};
@@ -53,6 +59,12 @@ class _CheckoutModalState extends State<CheckoutModal> {
   void initState() {
     super.initState();
     _fetchInitialData();
+
+    _localSubTotal = widget.subTotal;
+    _localTotal = widget.total;
+    _localPajak = widget.pajak;
+    _localDiskon = widget.diskon;
+
     _bayarController.addListener(_calculateChange);
   }
 
@@ -71,8 +83,33 @@ class _CheckoutModalState extends State<CheckoutModal> {
         int.tryParse(_bayarController.text.replaceAll(RegExp(r'[^0-9]'), '')) ??
         0;
     setState(() {
-      _kembalian = bayar - widget.total;
+      _kembalian = bayar - _localTotal;
     });
+  }
+
+  void _recalculateTotals() {
+    int newSubTotal = 0;
+    for (var item in widget.cartItems) {
+      newSubTotal += (item['price'] as int) * (item['qty'] as int);
+    }
+
+    setState(() {
+      _localSubTotal = newSubTotal;
+      _localPajak = (newSubTotal * 0.1).round();
+      _localTotal = _localSubTotal + _localPajak - _localDiskon;
+      _calculateChange();
+    });
+  }
+
+  Widget _buildQtyBtn({required IconData icon, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Icon(icon, size: 16, color: Colors.blue),
+      ),
+    );
   }
 
   String _formatCurrency(dynamic amount) {
@@ -157,7 +194,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
       "jumlahDiskon": widget.diskon.toString(),
       "paymentMethodId": selectedPaymentMethodId,
       "total": widget.total.toString(),
-      "notes": _notesController.text,
+      "notes": "[$_orderType] ${_notesController.text}",
       "nomorAntrian": _antrianController.text.trim(),
       "customerName": _finalCustomerName,
       "jumlahBayar": bayarValue.toString(),
@@ -209,23 +246,72 @@ class _CheckoutModalState extends State<CheckoutModal> {
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      // InsetPadding diset ke 0 agar Dialog tidak terdorong paksa secara eksternal
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         width: _isFinished ? 500 : 750,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            // Membatasi tinggi modal agar tidak lebih besar dari viewport yang tersisa
             maxHeight:
                 MediaQuery.of(context).size.height -
                 MediaQuery.of(context).viewInsets.bottom -
                 40,
           ),
           child: SingleChildScrollView(
-            // Kita hilangkan padding dinamis di sini karena ConstrainedBox sudah menangani batasnya
             padding: const EdgeInsets.all(24),
             child: _isFinished ? _buildInvoiceView() : _buildCheckoutForm(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderTypeSelector() {
+    return Row(
+      children: [
+        _orderTypeCard(
+          "Makan di Tempat",
+          Icons.restaurant,
+          _orderType == "Makan di Tempat",
+        ),
+        const SizedBox(width: 12),
+        _orderTypeCard(
+          "Take Away",
+          Icons.shopping_bag,
+          _orderType == "Take Away",
+        ),
+      ],
+    );
+  }
+
+  Widget _orderTypeCard(String title, IconData icon, bool isSelected) {
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => _orderType = title),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.blue.shade50 : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? Colors.blue : Colors.grey.shade300,
+              width: 2,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: isSelected ? Colors.blue : Colors.grey),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.blue : Colors.grey,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -241,7 +327,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              "Checkout",
+              "Detail Pesanan",
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             IconButton(
@@ -251,58 +337,174 @@ class _CheckoutModalState extends State<CheckoutModal> {
           ],
         ),
         const SizedBox(height: 20),
+
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade200),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    const Text(
-                      "Ringkasan Pesanan",
-                      style: TextStyle(fontWeight: FontWeight.bold),
+              flex: 1,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildOrderTypeSelector(),
+                  const SizedBox(height: 16),
+
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      border: Border.all(color: Colors.grey.shade200),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(height: 12),
-                    _summaryRowItem("Subtotal", widget.subTotal),
-                    _summaryRowItem(
-                      "Diskon",
-                      widget.diskon,
-                      isNegative: true,
-                      color: Colors.red,
-                    ),
-                    _summaryRowItem("Pajak", widget.pajak),
-                    const Divider(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
                       children: [
-                        const Text(
-                          "Total Akhir",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                        _summaryRowItem("Subtotal", widget.subTotal),
+                        _summaryRowItem(
+                          "Diskon",
+                          widget.diskon,
+                          isNegative: true,
+                          color: Colors.red,
                         ),
-                        Text(
-                          _formatCurrency(widget.total),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                            color: Colors.blue,
-                          ),
+                        _summaryRowItem("Pajak", widget.pajak),
+                        const Divider(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Total Akhir",
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            Text(
+                              _formatCurrency(widget.total),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  _buildLabel("Daftar Produk (${widget.cartItems.length})"),
+                  const SizedBox(height: 8),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 250),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.grey.shade200),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child:
+                        widget.cartItems.isEmpty
+                            ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: Text("Keranjang kosong"),
+                              ),
+                            )
+                            : ListView.separated(
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.all(12),
+                              itemCount: widget.cartItems.length,
+                              separatorBuilder:
+                                  (_, __) => const Divider(height: 12),
+                              itemBuilder: (context, index) {
+                                final item = widget.cartItems[index];
+                                return Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item['name'],
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          Text(
+                                            _formatCurrency(item['price']),
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          _buildQtyBtn(
+                                            icon: Icons.remove,
+                                            onTap:
+                                                () => setState(() {
+                                                  if (item['qty'] > 1)
+                                                    item['qty']--;
+                                                  else
+                                                    widget.cartItems.removeAt(
+                                                      index,
+                                                    );
+                                                  _calculateChange();
+                                                }),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                            ),
+                                            child: Text(
+                                              "${item['qty']}",
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          _buildQtyBtn(
+                                            icon: Icons.add,
+                                            onTap:
+                                                () => setState(() {
+                                                  item['qty']++;
+                                                  _calculateChange();
+                                                }),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                        size: 20,
+                                      ),
+                                      onPressed:
+                                          () => setState(() {
+                                            widget.cartItems.removeAt(index);
+                                            _calculateChange();
+                                          }),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                  ),
+                ],
               ),
             ),
+
             const SizedBox(width: 24),
+
             Expanded(
+              flex: 1,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -312,7 +514,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                     items:
                         paymentMethods
                             .map(
-                              (m) => DropdownMenuItem<String>(
+                              (m) => DropdownMenuItem(
                                 value: m['id'].toString(),
                                 child: Text(m['nama']),
                               ),
@@ -335,6 +537,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                     decoration: _inputDecoration(hint: "A-01"),
                   ),
                   const SizedBox(height: 16),
+
                   Row(
                     children: [
                       Expanded(
@@ -383,44 +586,42 @@ class _CheckoutModalState extends State<CheckoutModal> {
                     ],
                   ),
                   const SizedBox(height: 12),
+
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children:
-                        [5000, 10000, 20000, 50000, 100000]
-                            .map(
-                              (nominal) => InkWell(
-                                onTap:
-                                    () =>
-                                        _bayarController.text =
-                                            nominal.toString(),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    border: Border.all(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    _formatCurrency(nominal),
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                ),
+                        [5000, 10000, 20000, 50000, 100000].map((nominal) {
+                          return InkWell(
+                            onTap:
+                                () =>
+                                    _bayarController.text = nominal.toString(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
                               ),
-                            )
-                            .toList(),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                _formatCurrency(nominal),
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                          );
+                        }).toList(),
                   ),
                 ],
               ),
             ),
           ],
         ),
+
         const SizedBox(height: 32),
+
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
