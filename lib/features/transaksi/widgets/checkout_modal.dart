@@ -241,25 +241,91 @@ class _CheckoutModalState extends State<CheckoutModal> {
     }
   }
 
+  Future<void> _processOpenBill() async {
+    if (_antrianController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Nomor antrian wajib diisi untuk Open Bill!"),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    final authProv = context.read<AuthProvider>();
+
+    final body = {
+      "tenantId": authProv.tenantId,
+      "outletId": authProv.outletId,
+      "notes": "[$_orderType] ${_notesController.text}",
+      "nomorAntrian": _antrianController.text.trim(),
+      "items":
+          widget.cartItems
+              .map(
+                (item) => {
+                  "productId": item['id'],
+                  "quantity": item['qty'],
+                  "hargaSatuan": item['price'].toString(),
+                  "jumlahDiskon": "0", // Default sesuai spek API lo
+                  "total": (item['price'] * item['qty']).toString(),
+                },
+              )
+              .toList(),
+    };
+
+    try {
+      final res = await authProv.authenticatedPost('/api/openbills', body);
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.green,
+            content: Text("Bill Berhasil Disimpan (Open Bill)"),
+          ),
+        );
+        Navigator.pop(context); // Tutup modal setelah berhasil
+        widget.onSuccess();
+      } else {
+        final error = json.decode(res.body);
+        throw error['message'] ?? "Gagal menyimpan bill";
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text("Error Open Bill: $e"),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.transparent, // Biar nggak numpuk warnanya
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width: _isFinished ? 500 : 750,
-        child: ConstrainedBox(
+      child: Center(
+        child: Container(
+          width: _isFinished ? 500 : 800,
           constraints: BoxConstraints(
-            maxHeight:
-                MediaQuery.of(context).size.height -
-                MediaQuery.of(context).viewInsets.bottom -
-                40,
+            // Membatasi tinggi modal maksimal 90% layar
+            maxHeight: MediaQuery.of(context).size.height * 0.9,
           ),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: _isFinished ? _buildInvoiceView() : _buildCheckoutForm(),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            // 1. INI KUNCINYA: Biar konten otomatis 'naik' pas keyboard muncul
+            resizeToAvoidBottomInset: true,
+            body: SingleChildScrollView(
+              // 2. INI BIAR BISA DI-SCROLL TOTAL
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(24),
+              child: _isFinished ? _buildInvoiceView() : _buildCheckoutForm(),
+            ),
           ),
         ),
       ),
@@ -269,11 +335,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
   Widget _buildOrderTypeSelector() {
     return Row(
       children: [
-        _orderTypeCard(
-          "Makan di Tempat",
-          Icons.restaurant,
-          _orderType == "Makan di Tempat",
-        ),
+        _orderTypeCard("Dine In", Icons.restaurant, _orderType == "Dine In"),
         const SizedBox(width: 12),
         _orderTypeCard(
           "Take Away",
@@ -406,7 +468,8 @@ class _CheckoutModalState extends State<CheckoutModal> {
                               ),
                             )
                             : ListView.separated(
-                              shrinkWrap: true,
+                              shrinkWrap: true, // WAJIB
+                              physics: const NeverScrollableScrollPhysics(),
                               padding: const EdgeInsets.all(12),
                               itemCount: widget.cartItems.length,
                               separatorBuilder:
@@ -528,6 +591,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   _buildLabel("Nama Customer (Opsional)"),
                   TextField(
                     controller: _customerNameController,
+                    scrollPadding: const EdgeInsets.only(bottom: 100),
                     decoration: _inputDecoration(hint: "Nama Pelanggan"),
                   ),
                   const SizedBox(height: 16),
@@ -625,11 +689,35 @@ class _CheckoutModalState extends State<CheckoutModal> {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Batal", style: TextStyle(color: Colors.grey)),
+            OutlinedButton(
+              onPressed: _isSubmitting ? null : _processOpenBill,
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF1976D2)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child:
+                  _isSubmitting
+                      ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Text(
+                        "Open Bill",
+                        style: TextStyle(
+                          color: Color(0xFF1976D2),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
             ),
             const SizedBox(width: 12),
+
             ElevatedButton(
               onPressed: _isSubmitting ? null : _processCheckout,
               style: ElevatedButton.styleFrom(
