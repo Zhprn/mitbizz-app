@@ -19,7 +19,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
   String selectedCategory = "Semua";
   String searchQuery = "";
   final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _diskonController = TextEditingController();
 
   Timer? _debounce;
   List<Map<String, dynamic>> cartItems = [];
@@ -30,7 +29,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
   int currentPage = 1;
   int totalPages = 1;
 
-  int _diskonValue = 0;
+  Map<String, dynamic>? _selectedDiscount;
   double _taxRate = 0.0;
 
   @override
@@ -45,7 +44,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
-    _diskonController.dispose();
     super.dispose();
   }
 
@@ -242,9 +240,29 @@ class _TransaksiPageState extends State<TransaksiPage> {
     (sum, item) =>
         sum + ((item['price'] as num).toInt() * (item['qty'] as int)),
   );
-  int get diskon => _diskonValue;
-  int get pajak => ((subTotal - diskon) * (_taxRate / 100)).toInt();
-  int get total => (subTotal - diskon) + pajak;
+
+  int get diskonAmount {
+    if (_selectedDiscount == null) return 0;
+    double rate =
+        double.tryParse(_selectedDiscount!['rate']?.toString() ?? '0') ?? 0;
+    return (subTotal * (rate / 100)).toInt();
+  }
+
+  int get pajak => ((subTotal - diskonAmount) * (_taxRate / 100)).toInt();
+  int get total => (subTotal - diskonAmount) + pajak;
+
+  void _showDiscountModal() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => DiscountSelectorDialog(
+            onDiscountSelected: (discount) {
+              setState(() => _selectedDiscount = discount);
+              Navigator.pop(context);
+            },
+          ),
+    );
+  }
 
   void _showCheckoutModal() {
     showDialog(
@@ -253,14 +271,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
           (context) => CheckoutModal(
             cartItems: cartItems,
             subTotal: subTotal,
-            diskon: diskon,
+            diskon: diskonAmount,
             pajak: pajak,
             total: total,
             onSuccess: () {
               setState(() {
                 cartItems.clear();
-                _diskonValue = 0;
-                _diskonController.clear();
+                _selectedDiscount = null;
               });
               _fetchData(page: currentPage);
             },
@@ -692,8 +709,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                 onPressed:
                     () => setState(() {
                       cartItems.clear();
-                      _diskonController.clear();
-                      _diskonValue = 0;
+                      _selectedDiscount = null;
                     }),
                 icon: const Icon(
                   Icons.delete_outline,
@@ -875,40 +891,80 @@ class _TransaksiPageState extends State<TransaksiPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            "Diskon Transaksi",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            "Diskon Promo",
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 8),
-          Container(
-            height: 40,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade300),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: TextField(
-              controller: _diskonController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                hintText: "Rp 0",
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
+
+          InkWell(
+            onTap: () => _showDiscountModal(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                color:
+                    _selectedDiscount != null
+                        ? Colors.orange.shade50
+                        : Colors.white,
+                border: Border.all(
+                  color:
+                      _selectedDiscount != null
+                          ? Colors.orange
+                          : Colors.grey.shade300,
                 ),
+                borderRadius: BorderRadius.circular(8),
               ),
-              onChanged:
-                  (val) => setState(
-                    () =>
-                        _diskonValue =
-                            int.tryParse(
-                              val.replaceAll(RegExp(r'[^0-9]'), ''),
-                            ) ??
-                            0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _selectedDiscount != null
+                        ? _selectedDiscount!['nama']
+                        : "Pilih Diskon...",
+                    style: TextStyle(
+                      color:
+                          _selectedDiscount != null
+                              ? Colors.orange.shade800
+                              : Colors.grey.shade600,
+                      fontWeight:
+                          _selectedDiscount != null
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                    ),
                   ),
+                  if (_selectedDiscount != null)
+                    GestureDetector(
+                      onTap: () => setState(() => _selectedDiscount = null),
+                      child: const Icon(
+                        Icons.close,
+                        size: 18,
+                        color: Colors.red,
+                      ),
+                    )
+                  else
+                    const Icon(
+                      Icons.local_offer_outlined,
+                      size: 18,
+                      color: Colors.grey,
+                    ),
+                ],
+              ),
             ),
           ),
+
           const SizedBox(height: 16),
           _summaryRow("Sub Total", "Rp ${_formatRupiah(subTotal)}"),
+
+          if (_selectedDiscount != null)
+            _summaryRow(
+              "Diskon (${_selectedDiscount!['rate']}%)",
+              "- Rp ${_formatRupiah(diskonAmount)}",
+              valueColor: Colors.red,
+            ),
+
           _summaryRow(
             "Pajak ${_taxRate.toInt()}%",
             "Rp ${_formatRupiah(pajak)}",
@@ -1009,4 +1065,113 @@ class DashedLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+class DiscountSelectorDialog extends StatefulWidget {
+  final Function(Map<String, dynamic>) onDiscountSelected;
+  const DiscountSelectorDialog({super.key, required this.onDiscountSelected});
+
+  @override
+  State<DiscountSelectorDialog> createState() => _DiscountSelectorDialogState();
+}
+
+class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
+  List<dynamic> _discounts = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDiscounts();
+  }
+
+  Future<void> _fetchDiscounts() async {
+    final authProv = context.read<AuthProvider>();
+    final myOutletId = authProv.outletId;
+
+    try {
+      final res = await authProv.authenticatedGet('/api/discounts');
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        final List rawData = data['data']?['data'] ?? [];
+
+        final filteredDiscounts =
+            rawData.where((d) {
+              if (d['isActive'] != true) return false;
+              if (d['level'] == 'tenant') return true;
+              if (d['level'] == 'outlet' && d['outletId'] == myOutletId)
+                return true;
+              return false;
+            }).toList();
+
+        setState(() {
+          _discounts = filteredDiscounts;
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text(
+        "Pilih Diskon Promo",
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      content: Container(
+        width: 400,
+        constraints: const BoxConstraints(maxHeight: 400),
+        child:
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _discounts.isEmpty
+                ? const Center(
+                  child: Text(
+                    "Tidak ada diskon tersedia",
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+                : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _discounts.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final d = _discounts[i];
+                    return ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.local_offer,
+                          color: Colors.orange,
+                        ),
+                      ),
+                      title: Text(
+                        d['nama'] ?? '-',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        "Rate: ${d['rate']}% • Level: ${d['level']}",
+                      ),
+                      trailing: const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 14,
+                        color: Colors.grey,
+                      ),
+                      onTap: () => widget.onDiscountSelected(d),
+                    );
+                  },
+                ),
+      ),
+    );
+  }
 }
