@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../../core/services/print_service.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class CheckoutModal extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
@@ -54,6 +55,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
   Map<String, dynamic> _outletData = {};
   Map<String, dynamic> _tenantSettings = {};
+  final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
 
   @override
   void initState() {
@@ -266,7 +268,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   "productId": item['id'],
                   "quantity": item['qty'],
                   "hargaSatuan": item['price'].toString(),
-                  "jumlahDiskon": "0", // Default sesuai spek API lo
+                  "jumlahDiskon": "0",
                   "total": (item['price'] * item['qty']).toString(),
                 },
               )
@@ -282,7 +284,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
             content: Text("Bill Berhasil Disimpan (Open Bill)"),
           ),
         );
-        Navigator.pop(context); // Tutup modal setelah berhasil
+        Navigator.pop(context);
         widget.onSuccess();
       } else {
         final error = json.decode(res.body);
@@ -302,30 +304,28 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
     return Dialog(
-      backgroundColor: Colors.transparent, // Biar nggak numpuk warnanya
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: Center(
-        child: Container(
-          width: _isFinished ? 500 : 800,
-          constraints: BoxConstraints(
-            // Membatasi tinggi modal maksimal 90% layar
-            maxHeight: MediaQuery.of(context).size.height * 0.9,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Scaffold(
-            backgroundColor: Colors.transparent,
-            // 1. INI KUNCINYA: Biar konten otomatis 'naik' pas keyboard muncul
-            resizeToAvoidBottomInset: true,
-            body: SingleChildScrollView(
-              // 2. INI BIAR BISA DI-SCROLL TOTAL
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(24),
-              child: _isFinished ? _buildInvoiceView() : _buildCheckoutForm(),
+      child: Container(
+        width: _isFinished ? 500 : 750,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            padding: EdgeInsets.only(
+              top: 50,
+              left: 24,
+              right: 24,
+              bottom: 460 + bottomInset,
             ),
+            child: _isFinished ? _buildInvoiceView() : _buildCheckoutForm(),
           ),
         ),
       ),
@@ -452,6 +452,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
                   _buildLabel("Daftar Produk (${widget.cartItems.length})"),
                   const SizedBox(height: 8),
+
                   Container(
                     constraints: const BoxConstraints(maxHeight: 250),
                     decoration: BoxDecoration(
@@ -467,97 +468,107 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                 child: Text("Keranjang kosong"),
                               ),
                             )
-                            : ListView.separated(
-                              shrinkWrap: true, // WAJIB
-                              physics: const NeverScrollableScrollPhysics(),
-                              padding: const EdgeInsets.all(12),
-                              itemCount: widget.cartItems.length,
-                              separatorBuilder:
-                                  (_, __) => const Divider(height: 12),
-                              itemBuilder: (context, index) {
-                                final item = widget.cartItems[index];
-                                return Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item['name'],
-                                            style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          Text(
-                                            _formatCurrency(item['price']),
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.shade100,
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          _buildQtyBtn(
-                                            icon: Icons.remove,
-                                            onTap:
-                                                () => setState(() {
-                                                  if (item['qty'] > 1)
-                                                    item['qty']--;
-                                                  else
-                                                    widget.cartItems.removeAt(
-                                                      index,
-                                                    );
-                                                  _calculateChange();
-                                                }),
-                                          ),
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                            ),
-                                            child: Text(
-                                              "${item['qty']}",
+                            : RawScrollbar(
+                              thumbColor: Colors.grey.shade400,
+                              radius: const Radius.circular(8),
+                              thickness: 4,
+                              thumbVisibility: true,
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                physics: const ClampingScrollPhysics(),
+                                padding: const EdgeInsets.all(12),
+                                itemCount: widget.cartItems.length,
+                                separatorBuilder:
+                                    (_, __) => const Divider(height: 12),
+                                itemBuilder: (context, index) {
+                                  final item = widget.cartItems[index];
+                                  return Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item['name'],
                                               style: const TextStyle(
+                                                fontSize: 13,
                                                 fontWeight: FontWeight.bold,
                                               ),
+                                              overflow: TextOverflow.ellipsis,
                                             ),
-                                          ),
-                                          _buildQtyBtn(
-                                            icon: Icons.add,
-                                            onTap:
-                                                () => setState(() {
-                                                  item['qty']++;
-                                                  _calculateChange();
-                                                }),
-                                          ),
-                                        ],
+                                            Text(
+                                              _formatCurrency(item['price']),
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.red,
-                                        size: 20,
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            _buildQtyBtn(
+                                              icon: Icons.remove,
+                                              onTap:
+                                                  () => setState(() {
+                                                    if (item['qty'] > 1) {
+                                                      item['qty']--;
+                                                    } else {
+                                                      widget.cartItems.removeAt(
+                                                        index,
+                                                      );
+                                                    }
+                                                    _calculateChange();
+                                                  }),
+                                            ),
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                  ),
+                                              child: Text(
+                                                "${item['qty']}",
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                            _buildQtyBtn(
+                                              icon: Icons.add,
+                                              onTap:
+                                                  () => setState(() {
+                                                    item['qty']++;
+                                                    _calculateChange();
+                                                  }),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                      onPressed:
-                                          () => setState(() {
-                                            widget.cartItems.removeAt(index);
-                                            _calculateChange();
-                                          }),
-                                    ),
-                                  ],
-                                );
-                              },
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                          color: Colors.red,
+                                          size: 20,
+                                        ),
+                                        onPressed:
+                                            () => setState(() {
+                                              widget.cartItems.removeAt(index);
+                                              _calculateChange();
+                                            }),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                             ),
                   ),
                 ],
@@ -591,7 +602,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   _buildLabel("Nama Customer (Opsional)"),
                   TextField(
                     controller: _customerNameController,
-                    scrollPadding: const EdgeInsets.only(bottom: 100),
                     decoration: _inputDecoration(hint: "Nama Pelanggan"),
                   ),
                   const SizedBox(height: 16),
@@ -764,6 +774,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
       paymentMethodName = method['nama'] ?? '-';
     } catch (_) {}
 
+    final String? tenantImage = _outletData['tenant']?['image'];
+    final String fullImageUrl =
+        tenantImage != null ? '$_baseUrl/$tenantImage' : '';
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -785,6 +799,25 @@ class _CheckoutModalState extends State<CheckoutModal> {
         Center(
           child: Column(
             children: [
+              if (tenantImage != null && tenantImage.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      fullImageUrl,
+                      height: 60,
+                      width: 60,
+                      fit: BoxFit.cover,
+                      errorBuilder:
+                          (context, error, stackTrace) => const Icon(
+                            Icons.storefront,
+                            size: 50,
+                            color: Colors.grey,
+                          ),
+                    ),
+                  ),
+                ),
               Text(
                 _outletData['nama'] ?? 'Store',
                 style: const TextStyle(
@@ -861,7 +894,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
               ],
             ),
           );
-        }).toList(),
+        }),
         const Divider(),
         _buildSummaryRow(
           "Total Tagihan:",
@@ -906,6 +939,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                 },
                 outletData: _outletData,
                 orderItems: _fetchedOrderItems,
+                logoUrl: fullImageUrl.isNotEmpty ? fullImageUrl : null,
               );
             } catch (e) {
               ScaffoldMessenger.of(

@@ -195,6 +195,29 @@ class AuthProvider extends ChangeNotifier {
     );
   }
 
+  Future<http.Response> authenticatedPut(
+    String endpoint,
+    Map<String, dynamic> body,
+  ) async {
+    final headers = {
+      'Content-Type': 'application/json',
+      if (_sessionCookie != null) 'Cookie': _sessionCookie!,
+    };
+    return await http.put(
+      Uri.parse('$_baseUrl$endpoint'),
+      headers: headers,
+      body: json.encode(body),
+    );
+  }
+
+  Future<http.Response> authenticatedDelete(String endpoint) async {
+    final headers = {
+      'Content-Type': 'application/json',
+      if (_sessionCookie != null) 'Cookie': _sessionCookie!,
+    };
+    return await http.delete(Uri.parse('$_baseUrl$endpoint'), headers: headers);
+  }
+
   String? _extractAllCookies(String cookies) =>
       cookies.isNotEmpty ? cookies : null;
 

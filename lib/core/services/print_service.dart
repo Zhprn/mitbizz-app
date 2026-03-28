@@ -3,6 +3,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:async';
+import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 
 class PrintService {
   static String formatCurrency(dynamic amount) {
@@ -20,6 +22,7 @@ class PrintService {
     required Map<String, dynamic> orderData,
     required Map<String, dynamic> outletData,
     required List<dynamic> orderItems,
+    String? logoUrl,
   }) async {
     try {
       if (!device.isConnected) {
@@ -38,6 +41,31 @@ class PrintService {
       List<int> bytes = [];
 
       bytes += generator.reset();
+      if (logoUrl != null && logoUrl.isNotEmpty) {
+        try {
+          final response = await http
+              .get(Uri.parse(logoUrl))
+              .timeout(const Duration(seconds: 5));
+          if (response.statusCode == 200) {
+            final img.Image? originalImage = img.decodeImage(
+              response.bodyBytes,
+            );
+            if (originalImage != null) {
+              final img.Image resizedImage = img.copyResize(
+                originalImage,
+                width: 200,
+              );
+              bytes += generator.imageRaster(
+                resizedImage,
+                align: PosAlign.center,
+              );
+              bytes += generator.feed(1);
+            }
+          }
+        } catch (e) {
+          print("Gagal memproses logo: $e");
+        }
+      }
       bytes += generator.text(
         outletData['nama'] ?? 'STORE',
         styles: const PosStyles(

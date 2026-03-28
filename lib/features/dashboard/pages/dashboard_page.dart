@@ -10,6 +10,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
 import '../../../core/widgets/custom_app_bar.dart';
 import '../widgets/shift_status_alert.dart';
+import '../widgets/open_bill_detail_modal.dart.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -289,7 +290,18 @@ class _DashboardPageState extends State<DashboardPage> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: true,
+                      builder:
+                          (context) => OpenBillDetailModal(
+                            bill: bill,
+                            onRefresh:
+                                _fetchDashboardData, // Biar dashboard update pas bill dihapus
+                          ),
+                    );
+                  },
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Colors.grey.shade300),
                   ),
