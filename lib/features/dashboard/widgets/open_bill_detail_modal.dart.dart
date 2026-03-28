@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'dart:convert';
 import '../../../../core/providers/auth_provider.dart';
 
+import 'open_bill_invoice_modal.dart';
+
 class OpenBillDetailModal extends StatefulWidget {
   final Map<String, dynamic> bill;
   final VoidCallback onRefresh;
@@ -22,11 +24,18 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
   late List<dynamic> _currentItems;
   late TextEditingController _nameController;
 
+  final TextEditingController _bayarController = TextEditingController();
+  int _kembalian = 0;
+
   List<dynamic> _allPaymentMethods = [];
   String? _selectedPaymentId;
+  Map<String, dynamic>? _selectedDiscount;
   bool _isSubmitting = false;
   bool _showAllMethods = false;
   bool _isLoadingMethods = true;
+
+  double _taxRate = 0.0;
+  Map<String, dynamic> _outletData = {};
 
   @override
   void initState() {
@@ -39,7 +48,65 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
             .trim() ??
         "";
     _nameController = TextEditingController(text: cleanName);
+
     _fetchPaymentMethods();
+    _fetchOutletAndTaxData();
+  }
+
+  @override
+  void dispose() {
+    _bayarController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _calculateChange() {
+    final String cleanText = _bayarController.text.replaceAll(
+      RegExp(r'[^0-9]'),
+      '',
+    );
+    final int bayar = int.tryParse(cleanText) ?? 0;
+
+    setState(() {
+      _kembalian = bayar - _total.toInt();
+    });
+  }
+
+  String _formatCurrency(dynamic amount) {
+    if (amount == null) return "Rp 0";
+    final double value = double.tryParse(amount.toString()) ?? 0;
+    return NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    ).format(value);
+  }
+
+  Future<void> _fetchOutletAndTaxData() async {
+    final authProv = context.read<AuthProvider>();
+    final outletId = authProv.outletId;
+    if (outletId == null) return;
+
+    try {
+      final res = await authProv.authenticatedGet('/api/outlets/$outletId');
+      if (res.statusCode == 200) {
+        final jsonRes = json.decode(res.body);
+        if (mounted) {
+          setState(() {
+            _outletData = jsonRes['data'] ?? {};
+            _taxRate =
+                double.tryParse(
+                  _outletData['tenant']?['settings']?['taxRate']?.toString() ??
+                      '0',
+                ) ??
+                0.0;
+          });
+          _calculateChange();
+        }
+      }
+    } catch (e) {
+      debugPrint("Gagal memuat setting pajak: $e");
+    }
   }
 
   Future<void> _fetchPaymentMethods() async {
@@ -65,7 +132,10 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
         '/api/openbills/${widget.bill['id']}/items/$itemId',
       );
       if (res.statusCode == 200 || res.statusCode == 204) {
-        setState(() => _currentItems.removeAt(index));
+        setState(() {
+          _currentItems.removeAt(index);
+        });
+        _calculateChange();
         widget.onRefresh();
       }
     } catch (e) {
@@ -81,7 +151,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
         '/api/openbills/${widget.bill['id']}/cancel',
         {},
       );
-      if (res.statusCode == 200) {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
         if (mounted) {
           Navigator.pop(context);
           widget.onRefresh();
@@ -101,6 +171,19 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
   }
 
   Future<void> _confirmPayment() async {
+    final bayarValue =
+        int.tryParse(_bayarController.text.replaceAll(RegExp(r'[^0-9]'), '')) ??
+        0;
+    if (bayarValue < _total.toInt()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Uang bayar kurang!"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (_selectedPaymentId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -110,18 +193,77 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
       );
       return;
     }
+
     final authProv = context.read<AuthProvider>();
     setState(() => _isSubmitting = true);
+
     try {
-      final res = await authProv
-          .authenticatedPost('/api/openbills/${widget.bill['id']}/close', {
-            "paymentMethodId": _selectedPaymentId,
-            "notes": "[LUNAS] ${_nameController.text}".trim(),
-          });
-      if (res.statusCode == 200 || res.statusCode == 201) {
+      List<Map<String, dynamic>> diskonBreakdown = [];
+      if (_selectedDiscount != null) {
+        diskonBreakdown.add({
+          "discountId": _selectedDiscount!['id'],
+          "nama": _selectedDiscount!['nama'],
+          "rate": _selectedDiscount!['rate'].toString(),
+          "amount": _diskonAmount.toInt(),
+        });
+      }
+
+      final payload = {
+        "paymentMethodId": _selectedPaymentId,
+        "notes": "[LUNAS] ${_nameController.text}".trim(),
+        "subtotal": _subtotal.toInt().toString(),
+        "jumlahPajak": _pajak.toInt().toString(),
+        "jumlahDiskon": _diskonAmount.toInt().toString(),
+        "diskonBreakdown": diskonBreakdown,
+        "total": _total.toInt().toString(),
+      };
+
+      final res = await authProv.authenticatedPost(
+        '/api/openbills/${widget.bill['id']}/close',
+        payload,
+      );
+
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final responseData = json.decode(res.body)['data'] ?? {};
+
         if (mounted) {
           Navigator.pop(context);
-          widget.onRefresh();
+
+          String payName = '-';
+          try {
+            payName =
+                _allPaymentMethods.firstWhere(
+                  (m) => m['id'].toString() == _selectedPaymentId,
+                )['nama'];
+          } catch (_) {}
+
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder:
+                (context) => OpenBillInvoiceModal(
+                  orderData: {
+                    ...responseData,
+                    'tunai': bayarValue,
+                    'kembalian': _kembalian,
+                    'customerName':
+                        _nameController.text.isNotEmpty
+                            ? _nameController.text
+                            : (widget.bill['customerName'] ?? 'Guest'),
+                    'cashierName': authProv.user?.name ?? 'Kasir',
+                    'total': _total.toInt(),
+                    'orderNumber':
+                        responseData['orderNumber'] ??
+                        widget.bill['orderNumber'] ??
+                        '-',
+                  },
+                  outletData: _outletData,
+                  orderItems: _currentItems,
+                  paymentMethodName: payName,
+                  onClose: widget.onRefresh,
+                ),
+          );
+
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text("Pembayaran Berhasil!"),
@@ -129,7 +271,26 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
             ),
           );
         }
+      } else {
+        final errorData = json.decode(res.body);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Gagal: ${errorData['message'] ?? res.statusCode}"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
+    } catch (e) {
+      debugPrint("Koneksi Error: $e");
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Terjadi kesalahan jaringan"),
+            backgroundColor: Colors.red,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -140,200 +301,466 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     (sum, item) =>
         sum + (double.tryParse(item['total']?.toString() ?? '0') ?? 0),
   );
-  double get _pajak => _subtotal * 0.1;
-  double get _total => _subtotal + _pajak;
+
+  double get _diskonAmount {
+    if (_selectedDiscount == null) return 0;
+    double rate =
+        double.tryParse(_selectedDiscount!['rate']?.toString() ?? '0') ?? 0;
+    return _subtotal * (rate / 100);
+  }
+
+  double get _pajak => (_subtotal - _diskonAmount) * (_taxRate / 100);
+
+  double get _total => _subtotal - _diskonAmount + _pajak;
 
   @override
   Widget build(BuildContext context) {
-    final formatCurrency = NumberFormat.currency(
-      locale: 'id_ID',
-      symbol: 'Rp ',
-      decimalDigits: 0,
-    );
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
 
     return Dialog(
+      backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
+      insetPadding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 24,
+        bottom: bottomInset > 0 ? bottomInset + 24 : 24,
+      ),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
         width: 1000,
-        padding: const EdgeInsets.all(24),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "Detail Pesanan",
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const Divider(height: 32),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 5,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildInputLabel(
-                                "Nama Pelanggan",
-                                _nameController,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            _buildStaticInfo(
-                              "No. Meja",
-                              widget.bill['nomorAntrian'] ?? "-",
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "Daftar Pesanan",
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            ElevatedButton.icon(
-                              onPressed: () => _showAddProductModal(),
-                              icon: const Icon(Icons.add, size: 16),
-                              label: const Text("Tambah Produk"),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF0061C1),
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Container(
-                          height: 350,
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade200),
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.grey.shade50,
-                          ),
-                          child: ListView.separated(
-                            padding: const EdgeInsets.all(12),
-                            itemCount: _currentItems.length,
-                            separatorBuilder:
-                                (_, __) => const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final item = _currentItems[index];
-                              return _itemCard(
-                                item,
-                                formatCurrency,
-                                () => _deleteProduct(item['id'], index),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+        constraints: BoxConstraints(maxHeight: screenHeight - bottomInset - 48),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "Detail Pesanan",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 32),
-                  Expanded(
-                    flex: 4,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Metode Pembayaran",
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildPaymentMethodsGrid(),
-                        const Divider(height: 40),
-                        _summaryRow(
-                          "Subtotal:",
-                          formatCurrency.format(_subtotal),
-                        ),
-                        _summaryRow(
-                          "Pajak (10%):",
-                          formatCurrency.format(_pajak),
-                        ),
-                        _summaryRow(
-                          "Total Akhir:",
-                          formatCurrency.format(_total),
-                          isBold: true,
-                          fontSize: 20,
-                          color: const Color(0xFF0061C1),
-                        ),
-                        const SizedBox(height: 32),
-
-                        SizedBox(
-                          width: double.infinity,
-                          height: 55,
-                          child: ElevatedButton(
-                            onPressed: _isSubmitting ? null : _confirmPayment,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0061C1),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const Divider(height: 32),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildInputLabel(
+                                  "Nama Pelanggan",
+                                  _nameController,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              _buildStaticInfo(
+                                "No. Meja",
+                                widget.bill['nomorAntrian'] ?? "-",
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                "Daftar Pesanan",
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: () => _showAddProductModal(),
+                                icon: const Icon(Icons.add, size: 16),
+                                label: const Text("Tambah Produk"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF0061C1),
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            height: 480,
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.grey.shade200),
+                              borderRadius: BorderRadius.circular(12),
+                              color: Colors.grey.shade50,
+                            ),
+                            child: RawScrollbar(
+                              thumbColor: Colors.grey.shade400,
+                              radius: const Radius.circular(8),
+                              thickness: 4,
+                              child: ListView.separated(
+                                physics: const ClampingScrollPhysics(),
+                                padding: const EdgeInsets.all(12),
+                                itemCount: _currentItems.length,
+                                separatorBuilder:
+                                    (_, __) => const SizedBox(height: 10),
+                                itemBuilder: (context, index) {
+                                  final item = _currentItems[index];
+                                  return _itemCard(
+                                    item,
+                                    () => _deleteProduct(item['id'], index),
+                                  );
+                                },
                               ),
                             ),
-                            child:
-                                _isSubmitting
-                                    ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                    : const Text(
-                                      "Konfirmasi Pembayaran",
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 32),
+                    Expanded(
+                      flex: 4,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Informasi Pembayaran",
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      "Bayar",
                                       style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                                        fontSize: 12,
+                                        color: Colors.grey,
                                       ),
                                     ),
+                                    const SizedBox(height: 6),
+                                    TextField(
+                                      controller: _bayarController,
+                                      keyboardType: TextInputType.number,
+                                      onChanged: (val) {
+                                        String numOnly = val.replaceAll(
+                                          RegExp(r'[^0-9]'),
+                                          '',
+                                        );
+                                        if (numOnly.isNotEmpty) {
+                                          int value = int.parse(numOnly);
+                                          String formatted =
+                                              NumberFormat.currency(
+                                                locale: 'id_ID',
+                                                symbol: '',
+                                                decimalDigits: 0,
+                                              ).format(value);
+                                          _bayarController
+                                              .value = TextEditingValue(
+                                            text: formatted,
+                                            selection: TextSelection.collapsed(
+                                              offset: formatted.length,
+                                            ),
+                                          );
+                                        }
+                                        _calculateChange();
+                                      },
+                                      decoration: InputDecoration(
+                                        hintText: "0",
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 12,
+                                            ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      "Kembalian",
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                        horizontal: 16,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _kembalian < 0
+                                            ? "Kurang: ${_formatCurrency(_kembalian.abs())}"
+                                            : _formatCurrency(_kembalian),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color:
+                                              _kembalian < 0
+                                                  ? Colors.red
+                                                  : Colors.green,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 55,
-                          child: OutlinedButton(
-                            onPressed: _isSubmitting ? null : _cancelOpenBill,
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.red,
-                              side: const BorderSide(color: Colors.red),
-                              shape: RoundedRectangleBorder(
+                          const SizedBox(height: 12),
+
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children:
+                                [10000, 20000, 50000, 100000].map((nominal) {
+                                  return InkWell(
+                                    onTap: () {
+                                      _bayarController
+                                          .text = NumberFormat.currency(
+                                        locale: 'id_ID',
+                                        symbol: '',
+                                        decimalDigits: 0,
+                                      ).format(nominal);
+                                      _calculateChange();
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        border: Border.all(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        _formatCurrency(nominal),
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          const Text(
+                            "Metode Pembayaran",
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 12),
+                          _buildPaymentMethodsGrid(),
+
+                          const SizedBox(height: 24),
+
+                          const Text(
+                            "Diskon Promo",
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          InkWell(
+                            onTap: () => _showDiscountModal(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    _selectedDiscount != null
+                                        ? Colors.orange.shade50
+                                        : Colors.white,
+                                border: Border.all(
+                                  color:
+                                      _selectedDiscount != null
+                                          ? Colors.orange
+                                          : Colors.grey.shade300,
+                                ),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                            ),
-                            child: const Text(
-                              "Cancel Open Bill",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    _selectedDiscount != null
+                                        ? _selectedDiscount!['nama']
+                                        : "Pilih Diskon...",
+                                    style: TextStyle(
+                                      color:
+                                          _selectedDiscount != null
+                                              ? Colors.orange.shade800
+                                              : Colors.grey.shade600,
+                                      fontWeight:
+                                          _selectedDiscount != null
+                                              ? FontWeight.bold
+                                              : FontWeight.normal,
+                                    ),
+                                  ),
+                                  if (_selectedDiscount != null)
+                                    GestureDetector(
+                                      onTap: () {
+                                        setState(
+                                          () => _selectedDiscount = null,
+                                        );
+                                        _calculateChange();
+                                      },
+                                      child: const Icon(
+                                        Icons.close,
+                                        size: 18,
+                                        color: Colors.red,
+                                      ),
+                                    )
+                                  else
+                                    const Icon(
+                                      Icons.local_offer_outlined,
+                                      size: 18,
+                                      color: Colors.grey,
+                                    ),
+                                ],
                               ),
                             ),
                           ),
-                        ),
-                      ],
+
+                          const Divider(height: 40),
+
+                          _summaryRow("Subtotal:", _formatCurrency(_subtotal)),
+                          if (_selectedDiscount != null)
+                            _summaryRow(
+                              "Diskon (${_selectedDiscount!['rate']}%):",
+                              "- ${_formatCurrency(_diskonAmount)}",
+                              color: Colors.red,
+                            ),
+                          _summaryRow(
+                            "Pajak (${_taxRate.toInt()}%):",
+                            _formatCurrency(_pajak),
+                          ),
+                          _summaryRow(
+                            "Total Akhir:",
+                            _formatCurrency(_total),
+                            isBold: true,
+                            fontSize: 20,
+                            color: const Color(0xFF0061C1),
+                          ),
+                          const SizedBox(height: 32),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: 55,
+                            child: ElevatedButton(
+                              onPressed: _isSubmitting ? null : _confirmPayment,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF0061C1),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              child:
+                                  _isSubmitting
+                                      ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                      : const Text(
+                                        "Konfirmasi Pembayaran",
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 55,
+                            child: OutlinedButton(
+                              onPressed: _isSubmitting ? null : _cancelOpenBill,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              child: const Text(
+                                "Cancel Open Bill",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+
+  void _showDiscountModal() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => DiscountSelectorDialog(
+            onDiscountSelected: (discount) {
+              setState(() => _selectedDiscount = discount);
+              _calculateChange();
+              Navigator.pop(context);
+            },
+          ),
     );
   }
 
@@ -380,6 +807,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
                   });
                 });
 
+                _calculateChange();
                 widget.onRefresh();
 
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -504,7 +932,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     );
   }
 
-  Widget _itemCard(dynamic item, NumberFormat format, VoidCallback onDelete) {
+  Widget _itemCard(dynamic item, VoidCallback onDelete) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -535,7 +963,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
             ),
           ),
           Text(
-            format.format(double.tryParse(item['total'].toString()) ?? 0),
+            _formatCurrency(double.tryParse(item['total'].toString()) ?? 0),
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           IconButton(
@@ -575,6 +1003,115 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class DiscountSelectorDialog extends StatefulWidget {
+  final Function(Map<String, dynamic>) onDiscountSelected;
+  const DiscountSelectorDialog({super.key, required this.onDiscountSelected});
+
+  @override
+  State<DiscountSelectorDialog> createState() => _DiscountSelectorDialogState();
+}
+
+class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
+  List<dynamic> _discounts = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDiscounts();
+  }
+
+  Future<void> _fetchDiscounts() async {
+    final authProv = context.read<AuthProvider>();
+    final myOutletId = authProv.outletId;
+
+    try {
+      final res = await authProv.authenticatedGet('/api/discounts');
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        final List rawData = data['data']?['data'] ?? [];
+
+        final filteredDiscounts =
+            rawData.where((d) {
+              if (d['isActive'] != true) return false;
+              if (d['level'] == 'tenant') return true;
+              if (d['level'] == 'outlet' && d['outletId'] == myOutletId)
+                return true;
+              return false;
+            }).toList();
+
+        setState(() {
+          _discounts = filteredDiscounts;
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text(
+        "Pilih Diskon Promo",
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      content: Container(
+        width: 400,
+        constraints: const BoxConstraints(maxHeight: 400),
+        child:
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _discounts.isEmpty
+                ? const Center(
+                  child: Text(
+                    "Tidak ada diskon tersedia",
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+                : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _discounts.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final d = _discounts[i];
+                    return ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.local_offer,
+                          color: Colors.orange,
+                        ),
+                      ),
+                      title: Text(
+                        d['nama'] ?? '-',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        "Rate: ${d['rate']}% • Level: ${d['level']}",
+                      ),
+                      trailing: const Icon(
+                        Icons.arrow_forward_ios,
+                        size: 14,
+                        color: Colors.grey,
+                      ),
+                      onTap: () => widget.onDiscountSelected(d),
+                    );
+                  },
+                ),
       ),
     );
   }

@@ -282,8 +282,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       builder:
                           (context) => OpenBillDetailModal(
                             bill: bill,
-                            onRefresh:
-                                _fetchDashboardData, // Biar dashboard update pas bill dihapus
+                            onRefresh: _fetchDashboardData,
                           ),
                     );
                   },
@@ -300,7 +299,17 @@ class _DashboardPageState extends State<DashboardPage> {
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: true,
+                      builder:
+                          (context) => OpenBillDetailModal(
+                            bill: bill,
+                            onRefresh: _fetchDashboardData,
+                          ),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0061C1),
                   ),
