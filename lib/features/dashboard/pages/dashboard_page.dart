@@ -195,7 +195,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildTableCard(dynamic bill, NumberFormat format) {
     final List items = bill['orderItems'] as List? ?? [];
-    final double total = double.tryParse(bill['total']?.toString() ?? '0') ?? 0;
 
     DateTime created = DateTime.parse(bill['createdAt']).toLocal();
     String timeStr = DateFormat('HH:mm').format(created);
@@ -270,20 +269,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
               ),
-
-          const Divider(height: 24),
-          const Text(
-            "Total",
-            style: TextStyle(color: Colors.grey, fontSize: 11),
-          ),
-          Text(
-            format.format(total),
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-              color: Color(0xFF0061C1),
-            ),
-          ),
           const SizedBox(height: 16),
 
           Row(
