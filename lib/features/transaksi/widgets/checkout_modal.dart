@@ -187,6 +187,8 @@ class _CheckoutModalState extends State<CheckoutModal> {
             ? _customerNameController.text.trim()
             : 'Guest';
 
+    String tipeOrder = _orderType == "Take Away" ? "take_away" : "dine_in";
+
     final body = {
       "tenantId": authProv.tenantId,
       "outletId": authProv.outletId,
@@ -194,14 +196,16 @@ class _CheckoutModalState extends State<CheckoutModal> {
       "subtotal": widget.subTotal.toString(),
       "jumlahPajak": widget.pajak.toString(),
       "jumlahDiskon": widget.diskon.toString(),
+      "diskonBreakdown": [],
       "paymentMethodId": selectedPaymentMethodId,
       "total": widget.total.toString(),
-      "notes": "[$_orderType] ${_notesController.text}",
+      "notes": "[$_orderType] ${_notesController.text}".trim(),
       "nomorAntrian": _antrianController.text.trim(),
-      "customerName": _finalCustomerName,
-      "jumlahBayar": bayarValue.toString(),
-      "kembalian": _kembalian.toString(),
       "completedAt": DateTime.now().toIso8601String(),
+      "nama": _finalCustomerName,
+      "tipe": tipeOrder,
+      "bayar": bayarValue.toString(),
+      "kembali": _kembalian.toString(),
       "items":
           widget.cartItems
               .map(
@@ -209,6 +213,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   "productId": item['id'],
                   "quantity": item['qty'],
                   "hargaSatuan": item['price'].toString(),
+                  "jumlahDiskon": "0",
                   "total": (item['price'] * item['qty']).toString(),
                 },
               )
@@ -233,13 +238,16 @@ class _CheckoutModalState extends State<CheckoutModal> {
           });
         }
         widget.onSuccess();
+      } else {
+        final error = json.decode(res.body);
+        throw error['message'] ?? "Gagal memproses transaksi";
       }
     } catch (e) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("Gagal: $e")));
     } finally {
-      setState(() => _isSubmitting = false);
+      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 
@@ -313,18 +321,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
       child: Container(
         width: _isFinished ? 500 : 750,
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.only(
-              top: 50,
-              left: 24,
-              right: 24,
-              bottom: 460 + bottomInset,
-            ),
+            padding: EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 24),
             child: _isFinished ? _buildInvoiceView() : _buildCheckoutForm(),
           ),
         ),
@@ -599,7 +602,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                     decoration: _inputDecoration(),
                   ),
                   const SizedBox(height: 16),
-                  _buildLabel("Nama Customer (Opsional)"),
+                  _buildLabel("Nama Customer"),
                   TextField(
                     controller: _customerNameController,
                     decoration: _inputDecoration(hint: "Nama Pelanggan"),

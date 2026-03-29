@@ -321,12 +321,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 24,
-        bottom: bottomInset > 0 ? bottomInset + 24 : 24,
-      ),
+      insetPadding: EdgeInsets.only(left: 20, right: 20, top: 24, bottom: 24),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
