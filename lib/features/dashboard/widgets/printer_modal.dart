@@ -22,7 +22,6 @@ class _PrinterModalState extends State<PrinterModal> {
   }
 
   void _startScan() async {
-    // 1. Cek dukungan Bluetooth
     if (await FlutterBluePlus.isSupported == false) return;
 
     setState(() {
@@ -30,12 +29,10 @@ class _PrinterModalState extends State<PrinterModal> {
       _scanResults.clear();
     });
 
-    // 2. Langganan hasil scan
     _scanSubscription?.cancel();
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
       if (mounted) {
         setState(() {
-          // Filter: Ambil yang punya nama (baik platformName atau advName)
           _scanResults =
               results
                   .where(
@@ -48,7 +45,6 @@ class _PrinterModalState extends State<PrinterModal> {
       }
     });
 
-    // 3. Langganan status scanning
     _isScanningSubscription?.cancel();
     _isScanningSubscription = FlutterBluePlus.isScanning.listen((scanning) {
       if (mounted) setState(() => _isScanning = scanning);
@@ -63,7 +59,6 @@ class _PrinterModalState extends State<PrinterModal> {
 
   void _connectToDevice(BluetoothDevice device) async {
     try {
-      // BERHENTIKAN SCAN sebelum connect (Penting!)
       await FlutterBluePlus.stopScan();
 
       if (!mounted) return;
@@ -73,18 +68,16 @@ class _PrinterModalState extends State<PrinterModal> {
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
-      // Proses Koneksi
       await device.connect(
         timeout: const Duration(seconds: 10),
         autoConnect: false,
       );
 
-      // Tunggu sebentar agar servis printer terdeteksi
       await device.discoverServices();
 
       if (mounted) {
-        Navigator.pop(context); // Tutup Loading
-        Navigator.pop(context); // Tutup Modal
+        Navigator.pop(context);
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -95,7 +88,7 @@ class _PrinterModalState extends State<PrinterModal> {
         );
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context); // Tutup Loading
+      if (mounted) Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Gagal konek: $e"), backgroundColor: Colors.red),
       );
@@ -116,7 +109,7 @@ class _PrinterModalState extends State<PrinterModal> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
         padding: const EdgeInsets.all(20),
-        constraints: const BoxConstraints(maxWidth: 400), // Lebih responsif
+        constraints: const BoxConstraints(maxWidth: 400),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

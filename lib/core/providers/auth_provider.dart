@@ -26,7 +26,7 @@ class AuthProvider extends ChangeNotifier {
   List<dynamic> _outlets = [];
   bool get isLoading => _isLoading;
   String? get error => _error;
-  bool get isAuthenticated => _user != null;
+  bool get isAuthenticated => _user != null && _sessionCookie != null;
 
   AuthProvider() {
     _checkSession();
@@ -45,38 +45,34 @@ class AuthProvider extends ChangeNotifier {
     _setLoading(true);
     try {
       final prefs = await SharedPreferences.getInstance();
-      _sessionCookie = prefs.getString('session_cookie');
+
+      final storedCookie = prefs.getString('session_cookie');
       final userDataStr = prefs.getString('user_data');
 
-      if (userDataStr != null) {
-        _userData = json.decode(userDataStr);
-        _user = User.fromMap(_userData!);
+      if (storedCookie == null || userDataStr == null) {
+        await _clearLocalSession();
+        return;
       }
 
+      _sessionCookie = storedCookie;
+      _userData = json.decode(userDataStr);
+      _user = User.fromMap(_userData!);
+
       final rawSession = await _fetchRawSession();
-      if (rawSession != null) {
+
+      if (rawSession != null && rawSession['isExpired'] == true) {
+        await _clearLocalSession();
+      } else if (rawSession != null) {
         _userData = rawSession['user'];
         _user = User.fromMap(_userData!);
         await prefs.setString('user_data', json.encode(_userData));
-        _error = null;
-      } else {
-        final (sessionData, error) =
-            await BetterAuth.instance.client.getSession();
-        if (error != null) {
-          await _clearLocalSession();
-          _error = null;
-        } else if (sessionData != null) {
-          final (_, user) = sessionData;
-          _user = user;
-          _error = null;
-        } else {
-          await _clearLocalSession();
-        }
       }
     } catch (e) {
-      _error = null;
+      debugPrint("Error Check Session: $e");
+      await _clearLocalSession();
     } finally {
       _setLoading(false);
+      notifyListeners();
     }
   }
 
@@ -84,12 +80,13 @@ class AuthProvider extends ChangeNotifier {
     try {
       final headers = {
         'Content-Type': 'application/json',
+        'Origin': _baseUrl,
         if (_sessionCookie != null) 'Cookie': _sessionCookie!,
       };
-      final response = await http.get(
-        Uri.parse('$_baseUrl/api/auth/session'),
-        headers: headers,
-      );
+      final response = await http
+          .get(Uri.parse('$_baseUrl/api/auth/session'), headers: headers)
+          .timeout(const Duration(seconds: 10));
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data != null && data['user'] != null) {
@@ -101,6 +98,8 @@ class AuthProvider extends ChangeNotifier {
           }
           return data;
         }
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        return {'isExpired': true};
       }
     } catch (e) {}
     return null;
@@ -112,7 +111,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/api/auth/sign-in/email'),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'Origin': _baseUrl},
         body: json.encode({'email': email, 'password': password}),
       );
 
@@ -133,13 +132,6 @@ class AuthProvider extends ChangeNotifier {
           }
           await prefs.setString('user_data', json.encode(_userData));
 
-          try {
-            await BetterAuth.instance.client.signInWithEmailAndPassword(
-              email: email,
-              password: password,
-            );
-          } catch (_) {}
-
           _error = null;
           notifyListeners();
           return true;
@@ -159,15 +151,17 @@ class AuthProvider extends ChangeNotifier {
   Future<void> signOut() async {
     _setLoading(true);
     try {
-      await BetterAuth.instance.client.signOut();
       if (_sessionCookie != null) {
-        await http.post(
-          Uri.parse('$_baseUrl/api/auth/sign-out'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Cookie': _sessionCookie!,
-          },
-        );
+        await http
+            .post(
+              Uri.parse('$_baseUrl/api/auth/sign-out'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Origin': _baseUrl,
+                'Cookie': _sessionCookie!,
+              },
+            )
+            .timeout(const Duration(seconds: 3));
       }
     } catch (e) {
     } finally {
@@ -180,6 +174,7 @@ class AuthProvider extends ChangeNotifier {
   Future<http.Response> authenticatedGet(String endpoint) async {
     final headers = {
       'Content-Type': 'application/json',
+      'Origin': _baseUrl,
       if (_sessionCookie != null) 'Cookie': _sessionCookie!,
     };
     return await http.get(Uri.parse('$_baseUrl$endpoint'), headers: headers);

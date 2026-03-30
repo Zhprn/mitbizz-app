@@ -82,9 +82,22 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      initialRoute: AppRoutes.login,
+      home: Consumer<AuthProvider>(
+        builder: (context, auth, _) {
+          if (auth.isLoading && !auth.isAuthenticated) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (auth.isAuthenticated) {
+            return const DashboardPage();
+          }
+
+          return const LoginPage();
+        },
+      ),
       routes: {
-        AppRoutes.login: (context) => const LoginPage(),
         AppRoutes.dashboard:
             (context) => const AuthGuard(child: DashboardPage()),
         AppRoutes.transaksi:
