@@ -149,6 +149,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
           paymentMethods = jsonRes['data']['data'] ?? [];
           if (paymentMethods.isNotEmpty) {
             selectedPaymentMethodId = paymentMethods[0]['id'].toString();
+            if (!_isTunaiPayment) {
+              _bayarController.text = widget.total.toString();
+              _kembalian = 0;
+            }
           }
         });
       }
@@ -598,7 +602,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
                             )
                             .toList(),
                     onChanged:
-                        (val) => setState(() => selectedPaymentMethodId = val),
+                        (val) => setState(() {
+                          selectedPaymentMethodId = val;
+                          if (!_isTunaiPayment) {
+                            _bayarController.text = widget.total.toString();
+                            _kembalian = 0;
+                          }
+                        }),
                     decoration: _inputDecoration(),
                   ),
                   const SizedBox(height: 16),
@@ -613,84 +623,90 @@ class _CheckoutModalState extends State<CheckoutModal> {
                     controller: _antrianController,
                     decoration: _inputDecoration(hint: "A-01"),
                   ),
-                  const SizedBox(height: 16),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildLabel("Bayar"),
-                            TextField(
-                              controller: _bayarController,
-                              keyboardType: TextInputType.number,
-                              decoration: _inputDecoration(hint: "0"),
-                            ),
-                          ],
+                  if (_isTunaiPayment) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildLabel("Bayar"),
+                              TextField(
+                                controller: _bayarController,
+                                keyboardType: TextInputType.number,
+                                decoration: _inputDecoration(hint: "0"),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildLabel("Kembalian"),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
-                              child: Text(
-                                _formatCurrency(
-                                  _kembalian < 0 ? 0 : _kembalian,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildLabel("Kembalian"),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.grey.shade300,
+                                  ),
                                 ),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color:
-                                      _kembalian < 0
-                                          ? Colors.red
-                                          : Colors.green,
+                                child: Text(
+                                  _formatCurrency(
+                                    _kembalian < 0 ? 0 : _kembalian,
+                                  ),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        _kembalian < 0
+                                            ? Colors.red
+                                            : Colors.green,
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children:
-                        [5000, 10000, 20000, 50000, 100000].map((nominal) {
-                          return InkWell(
-                            onTap:
-                                () =>
-                                    _bayarController.text = nominal.toString(),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
+                  if (_isTunaiPayment)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children:
+                          [5000, 10000, 20000, 50000, 100000].map((nominal) {
+                            return InkWell(
+                              onTap:
+                                  () =>
+                                      _bayarController.text =
+                                          nominal.toString(),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  border: Border.all(
+                                    color: Colors.grey.shade300,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  _formatCurrency(nominal),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
                               ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                border: Border.all(color: Colors.grey.shade300),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                _formatCurrency(nominal),
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                  ),
+                            );
+                          }).toList(),
+                    ),
                 ],
               ),
             ),
@@ -907,11 +923,11 @@ class _CheckoutModalState extends State<CheckoutModal> {
         ),
         _buildSummaryRow(
           "Dibayar ($paymentMethodName):",
-          _formatCurrency(_finalJumlahBayar),
+          _formatCurrency(_orderData['bayar'] ?? 0),
         ),
         _buildSummaryRow(
           "Kembalian:",
-          _formatCurrency(_finalKembalian),
+          _formatCurrency(_orderData['kembali'] ?? 0),
           valueColor: Colors.green,
           isBold: true,
         ),
@@ -1042,6 +1058,19 @@ class _CheckoutModalState extends State<CheckoutModal> {
         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
       ),
     );
+  }
+
+  bool get _isTunaiPayment {
+    if (selectedPaymentMethodId == null) return false;
+    try {
+      final method = paymentMethods.firstWhere(
+        (m) => m['id'].toString() == selectedPaymentMethodId.toString(),
+      );
+      final nama = method['nama']?.toString().toLowerCase() ?? '';
+      return nama == 'tunai';
+    } catch (_) {
+      return false;
+    }
   }
 
   InputDecoration _inputDecoration({String? hint}) {

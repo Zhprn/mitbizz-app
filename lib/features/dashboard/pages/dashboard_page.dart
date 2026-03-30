@@ -48,7 +48,6 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _fetchDashboardData() async {
     final authProv = context.read<AuthProvider>();
     final outletId = authProv.outletId;
-    if (outletId == null) return;
 
     setState(() => _isLoadingDashboard = true);
     try {
@@ -105,7 +104,9 @@ class _DashboardPageState extends State<DashboardPage> {
     } catch (e) {
       debugPrint("Error Fetch Dashboard: $e");
     } finally {
-      if (mounted) setState(() => _isLoadingDashboard = false);
+      if (mounted) {
+        setState(() => _isLoadingDashboard = false);
+      }
     }
   }
 

@@ -19,6 +19,11 @@ class AuthProvider extends ChangeNotifier {
   String? get outletId => _userData?['outletId'];
   String? get tenantId => _userData?['tenantId'];
   String? get sessionCookie => _sessionCookie;
+  Map<String, dynamic>? get selectedOutlet => _selectedOutlet;
+  List<dynamic> get outlets => _outlets;
+
+  Map<String, dynamic>? _selectedOutlet;
+  List<dynamic> _outlets = [];
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _user != null;
@@ -224,5 +229,35 @@ class AuthProvider extends ChangeNotifier {
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
+  }
+
+  Future<void> setSelectedOutlet(Map<String, dynamic> outlet) async {
+    _selectedOutlet = outlet;
+    _userData = {...?_userData, 'outletId': outlet['id']};
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_data', json.encode(_userData));
+    notifyListeners();
+  }
+
+  Future<List<dynamic>> getOutlets() async {
+    if (tenantId == null) return [];
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/tenants/id/$tenantId/outlets'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (_sessionCookie != null) 'Cookie': _sessionCookie!,
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        _outlets = data['data']?['data'] ?? [];
+        notifyListeners();
+        return _outlets;
+      }
+    } catch (e) {
+      debugPrint('Error fetching outlets: $e');
+    }
+    return [];
   }
 }

@@ -4,6 +4,7 @@ import '../providers/auth_provider.dart';
 import '../providers/shift_provider.dart';
 import '../../../routes/app_routes.dart';
 import '../../features/dashboard/widgets/printer_modal.dart';
+import '../../features/dashboard/widgets/outlet_selection_dialog.dart';
 
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String activeMenu;
@@ -74,6 +75,8 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
       ),
       actions: [
         if (isMobile) _buildMobileMenu(context),
+
+        _outletChip(context, authProv, isMobile),
 
         IconButton(
           onPressed: () {
@@ -193,6 +196,61 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
             color: Colors.blue,
             fontSize: 10,
             fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _outletChip(
+    BuildContext context,
+    AuthProvider authProv,
+    bool isMobile,
+  ) {
+    final outletId = authProv.outletId;
+
+    if (outletId != null) {
+      return const SizedBox.shrink();
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => const OutletSelectionDialog(),
+          );
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.orange.shade50,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.orange.shade200),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.store, size: 16, color: Colors.orange),
+              const SizedBox(width: 6),
+              Text(
+                "Pilih Outlet",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.warning_amber_rounded,
+                size: 14,
+                color: Colors.orange.shade700,
+              ),
+            ],
           ),
         ),
       ),
