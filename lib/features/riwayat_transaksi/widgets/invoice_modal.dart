@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:intl/intl.dart';
+import '../../../core/services/print_service.dart';
 
-class InvoiceModal extends StatelessWidget {
+class InvoiceModal extends StatefulWidget {
   final Map<String, dynamic> orderData;
   final Map<String, dynamic> outletData;
   final List<dynamic> orderItems;
@@ -15,6 +17,11 @@ class InvoiceModal extends StatelessWidget {
     required this.tenantSettings,
   });
 
+  @override
+  State<InvoiceModal> createState() => _InvoiceModalState();
+}
+
+class _InvoiceModalState extends State<InvoiceModal> {
   String _formatCurrency(dynamic amount) {
     if (amount == null) return "Rp 0";
     final double value = double.tryParse(amount.toString()) ?? 0;
@@ -37,6 +44,13 @@ class InvoiceModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final outletData = widget.outletData;
+    final orderData = widget.orderData;
+    final orderItems = widget.orderItems;
+    final tenantSettings = widget.tenantSettings;
+
+    final String? tenantImage = outletData['tenant']?['image'];
+
     final String storeName =
         outletData['companyName'] ?? outletData['nama'] ?? 'MitBiz Store';
     final String storeAddress =
@@ -364,23 +378,50 @@ class InvoiceModal extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: const Color(0xFFF8F9FA),
-                    side: BorderSide.none,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF8F9FA),
+                        side: BorderSide.none,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        "Tutup",
+                        style: TextStyle(color: Colors.black87),
+                      ),
                     ),
                   ),
-                  child: const Text(
-                    "Tutup",
-                    style: TextStyle(color: Colors.black87),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed:
+                          () => _handlePrint(
+                            tenantImage,
+                            orderData,
+                            outletData,
+                            orderItems,
+                          ),
+                      icon: const Icon(Icons.print, color: Colors.white),
+                      label: const Text(
+                        "Cetak Struk",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1976D2),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
@@ -432,5 +473,64 @@ class InvoiceModal extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _handlePrint(
+    String? logoPath,
+    Map<String, dynamic> orderData,
+    Map<String, dynamic> outletData,
+    List<dynamic> orderItems,
+  ) async {
+    try {
+      List<BluetoothDevice> connected = await FlutterBluePlus.connectedDevices;
+      if (connected.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Tidak ada printer Bluetooth yang terhubung!"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder:
+              (context) => const Center(child: CircularProgressIndicator()),
+        );
+      }
+
+      await PrintService.printInvoice(
+        device: connected.first,
+        orderData: orderData,
+        outletData: outletData,
+        orderItems: orderItems,
+        logoPath: logoPath,
+      );
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Struk berhasil dicetak"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Print Error: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

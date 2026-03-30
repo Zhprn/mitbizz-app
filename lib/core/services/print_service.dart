@@ -1,5 +1,6 @@
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:async';
@@ -17,12 +18,19 @@ class PrintService {
     ).format(value).trim();
   }
 
+  static String _buildLogoUrl(String? logoPath) {
+    if (logoPath == null || logoPath.isEmpty) return '';
+    final baseUrl = dotenv.env['BASE_URL'] ?? '';
+    return 'https://$baseUrl/$logoPath';
+  }
+
   static Future<void> printInvoice({
     required BluetoothDevice device,
     required Map<String, dynamic> orderData,
     required Map<String, dynamic> outletData,
     required List<dynamic> orderItems,
     String? logoUrl,
+    String? logoPath,
   }) async {
     try {
       if (!device.isConnected) {
@@ -41,10 +49,11 @@ class PrintService {
       List<int> bytes = [];
 
       bytes += generator.reset();
-      if (logoUrl != null && logoUrl.isNotEmpty) {
+      final String effectiveLogoUrl = logoUrl ?? _buildLogoUrl(logoPath);
+      if (effectiveLogoUrl.isNotEmpty) {
         try {
           final response = await http
-              .get(Uri.parse(logoUrl))
+              .get(Uri.parse(effectiveLogoUrl))
               .timeout(const Duration(seconds: 5));
           if (response.statusCode == 200) {
             final img.Image? originalImage = img.decodeImage(
@@ -53,10 +62,11 @@ class PrintService {
             if (originalImage != null) {
               final img.Image resizedImage = img.copyResize(
                 originalImage,
-                width: 200,
+                width: 100,
               );
+              final img.Image grayscaleImage = img.grayscale(resizedImage);
               bytes += generator.imageRaster(
-                resizedImage,
+                grayscaleImage,
                 align: PosAlign.center,
               );
               bytes += generator.feed(1);
@@ -67,7 +77,7 @@ class PrintService {
         }
       }
       bytes += generator.text(
-        outletData['nama'] ?? 'STORE',
+        outletData['tenant']?['nama'] ?? outletData['tenant']?['name'] ?? '',
         styles: const PosStyles(
           align: PosAlign.center,
           bold: true,
@@ -76,15 +86,21 @@ class PrintService {
         ),
       );
       bytes += generator.text(
+        outletData['nama'] ?? 'STORE',
+        styles: const PosStyles(align: PosAlign.center),
+      );
+      bytes += generator.text(
         outletData['alamat'] ?? '-',
         styles: const PosStyles(align: PosAlign.center),
       );
       bytes += generator.hr();
 
       bytes += generator.text("Invoice : ${orderData['orderNumber'] ?? '-'}");
-      bytes += generator.text("Kasir   : ${orderData['cashierName'] ?? '-'}");
       bytes += generator.text(
-        "Customer: ${orderData['customerName'] ?? 'Guest'}",
+        "Kasir   : ${orderData['cashier']?['name'] ?? orderData['cashier']?['nama'] ?? orderData['cashierName'] ?? '-'}",
+      );
+      bytes += generator.text(
+        "Customer: ${orderData['nama'] ?? orderData['customerName'] ?? 'Guest'}",
       );
       bytes += generator.text(
         "Waktu   : ${DateFormat('dd/MM/yy HH:mm').format(DateTime.now())}",
@@ -120,6 +136,35 @@ class PrintService {
       bytes += generator.hr();
 
       bytes += generator.row([
+        PosColumn(text: "SUBTOTAL", width: 6),
+        PosColumn(
+          text: formatCurrency(orderData['subtotal']),
+          width: 6,
+          styles: const PosStyles(align: PosAlign.right),
+        ),
+      ]);
+
+      bytes += generator.row([
+        PosColumn(text: "DISKON", width: 6),
+        PosColumn(
+          text: "-${formatCurrency(orderData['jumlahDiskon'] ?? '0')}",
+          width: 6,
+          styles: const PosStyles(align: PosAlign.right),
+        ),
+      ]);
+
+      bytes += generator.row([
+        PosColumn(text: "PAJAK", width: 6),
+        PosColumn(
+          text: formatCurrency(orderData['jumlahPajak'] ?? '0'),
+          width: 6,
+          styles: const PosStyles(align: PosAlign.right),
+        ),
+      ]);
+
+      bytes += generator.hr();
+
+      bytes += generator.row([
         PosColumn(text: "TOTAL", width: 6, styles: const PosStyles(bold: true)),
         PosColumn(
           text: formatCurrency(orderData['total']),
@@ -131,7 +176,7 @@ class PrintService {
       bytes += generator.row([
         PosColumn(text: "BAYAR", width: 6),
         PosColumn(
-          text: formatCurrency(orderData['tunai']),
+          text: formatCurrency(orderData['bayar'] ?? orderData['tunai'] ?? 0),
           width: 6,
           styles: const PosStyles(align: PosAlign.right),
         ),
@@ -140,7 +185,9 @@ class PrintService {
       bytes += generator.row([
         PosColumn(text: "KEMBALI", width: 6),
         PosColumn(
-          text: formatCurrency(orderData['kembalian']),
+          text: formatCurrency(
+            orderData['kembali'] ?? orderData['kembalian'] ?? 0,
+          ),
           width: 6,
           styles: const PosStyles(align: PosAlign.right),
         ),
