@@ -102,6 +102,10 @@ class PrintService {
       bytes += generator.text(
         "Customer: ${orderData['nama'] ?? orderData['customerName'] ?? 'Guest'}",
       );
+      if (orderData['nomorAntrian'] != null &&
+          orderData['nomorAntrian'].toString().isNotEmpty) {
+        bytes += generator.text("Antrian : ${orderData['nomorAntrian']}");
+      }
       bytes += generator.text(
         "Waktu   : ${DateFormat('dd/MM/yy HH:mm').format(DateTime.now())}",
       );

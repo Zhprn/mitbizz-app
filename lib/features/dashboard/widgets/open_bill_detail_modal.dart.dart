@@ -250,6 +250,10 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
                         _nameController.text.isNotEmpty
                             ? _nameController.text
                             : (widget.bill['customerName'] ?? 'Guest'),
+                    'nomorAntrian':
+                        widget.bill['nomorAntrian'] ??
+                        responseData['nomorAntrian'] ??
+                        '-',
                     'cashierName': authProv.user?.name ?? 'Kasir',
                     'total': _total.toInt(),
                     'orderNumber':

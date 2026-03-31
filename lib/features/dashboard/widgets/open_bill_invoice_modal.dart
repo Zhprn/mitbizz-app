@@ -138,6 +138,10 @@ class OpenBillInvoiceModal extends StatelessWidget {
                           "Invoice",
                           orderData['orderNumber'] ?? '-',
                         ),
+                        _buildMetaText(
+                          "Nomor Antrian",
+                          orderData['nomorAntrian'] ?? '-',
+                        ),
                         const SizedBox(height: 12),
                         _buildMetaText(
                           "Kasir",
