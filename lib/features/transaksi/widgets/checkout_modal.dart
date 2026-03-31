@@ -47,7 +47,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
   int _finalJumlahBayar = 0;
   int _finalKembalian = 0;
   String _orderType = 'Dine In';
+  int get _promoDiscountAmount {
+    if (_selectedDiscount == null) return 0;
+    double rate = double.tryParse(_selectedDiscount!['rate'].toString()) ?? 0;
+    return (widget.subTotal * (rate / 100)).toInt();
+  }
 
+  int get _finalTotalAfterPromo => widget.total - _promoDiscountAmount;
   int _localSubTotal = 0;
   int _localTotal = 0;
   int _localPajak = 0;
@@ -56,6 +62,9 @@ class _CheckoutModalState extends State<CheckoutModal> {
   Map<String, dynamic> _outletData = {};
   Map<String, dynamic> _tenantSettings = {};
   final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
+  List<dynamic> _discounts = [];
+  Map<String, dynamic>? _selectedDiscount;
+  bool _isLoadingDiscounts = false;
 
   @override
   void initState() {
@@ -87,6 +96,50 @@ class _CheckoutModalState extends State<CheckoutModal> {
     setState(() {
       _kembalian = bayar - _localTotal;
     });
+  }
+
+  void _showDiscountSelectorDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text("Pilih Diskon Promo"),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            content: SizedBox(
+              width: 400,
+              child:
+                  _discounts.isEmpty
+                      ? const Center(
+                        heightFactor: 2,
+                        child: Text("Tidak ada diskon aktif"),
+                      )
+                      : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _discounts.length,
+                        itemBuilder: (context, i) {
+                          final d = _discounts[i];
+                          return ListTile(
+                            leading: const Icon(
+                              Icons.local_offer,
+                              color: Colors.orange,
+                            ),
+                            title: Text(d['nama'] ?? 'Diskon'),
+                            subtitle: Text("Potongan ${d['rate']}%"),
+                            onTap: () {
+                              setState(() {
+                                _selectedDiscount = d;
+                                _calculateChange();
+                              });
+                              Navigator.pop(context);
+                            },
+                          );
+                        },
+                      ),
+            ),
+          ),
+    );
   }
 
   void _recalculateTotals() {
@@ -136,26 +189,50 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
   Future<void> _fetchInitialData() async {
     final authProv = context.read<AuthProvider>();
+    final myOutletId = authProv.outletId;
+
     try {
-      final resPay = await authProv.authenticatedGet(
-        '/api/payment-methods?tenantId=${authProv.tenantId}',
-      );
-      final resStore = await authProv.authenticatedGet(
-        '/api/outlets/${authProv.outletId}',
-      );
+      final responses = await Future.wait([
+        authProv.authenticatedGet(
+          '/api/payment-methods?tenantId=${authProv.tenantId}',
+        ),
+        authProv.authenticatedGet('/api/outlets/${authProv.outletId}'),
+        authProv.authenticatedGet('/api/discounts'),
+      ]);
+
+      final resPay = responses[0];
+      final resStore = responses[1];
+      final resDisc = responses[2];
+
       if (resPay.statusCode == 200) {
         final jsonRes = json.decode(resPay.body);
         setState(() {
           paymentMethods = jsonRes['data']['data'] ?? [];
           if (paymentMethods.isNotEmpty) {
             selectedPaymentMethodId = paymentMethods[0]['id'].toString();
-            if (!_isTunaiPayment) {
-              _bayarController.text = widget.total.toString();
-              _kembalian = 0;
-            }
           }
         });
       }
+
+      if (resDisc.statusCode == 200) {
+        final data = json.decode(resDisc.body);
+        final List rawData = data['data']?['data'] ?? [];
+
+        final filteredDiscounts =
+            rawData.where((d) {
+              if (d['isActive'] != true) return false;
+              if (d['level'] == 'tenant') return true;
+              if (d['level'] == 'outlet' && d['outletId'] == myOutletId)
+                return true;
+
+              return false;
+            }).toList();
+
+        setState(() {
+          _discounts = filteredDiscounts;
+        });
+      }
+
       if (resStore.statusCode == 200) {
         final jsonRes = json.decode(resStore.body);
         setState(() {
@@ -163,7 +240,9 @@ class _CheckoutModalState extends State<CheckoutModal> {
           _tenantSettings = jsonRes['data']?['tenant']?['settings'] ?? {};
         });
       }
-    } catch (e) {}
+    } catch (e) {
+      debugPrint("Error Fetching Data: $e");
+    }
   }
 
   Future<void> _processCheckout() async {
@@ -199,10 +278,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
       "status": "complete",
       "subtotal": widget.subTotal.toString(),
       "jumlahPajak": widget.pajak.toString(),
-      "jumlahDiskon": widget.diskon.toString(),
+      "jumlahDiskon": (widget.diskon + _promoDiscountAmount).toString(),
       "diskonBreakdown": [],
       "paymentMethodId": selectedPaymentMethodId,
-      "total": widget.total.toString(),
+      "total": _finalTotalAfterPromo.toString(),
       "notes": "[$_orderType] ${_notesController.text}".trim(),
       "nomorAntrian": _antrianController.text.trim(),
       "completedAt": DateTime.now().toIso8601String(),
@@ -430,7 +509,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         _summaryRowItem("Subtotal", widget.subTotal),
                         _summaryRowItem(
                           "Diskon",
-                          widget.diskon,
+                          _promoDiscountAmount,
                           isNegative: true,
                           color: Colors.red,
                         ),
@@ -444,7 +523,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             Text(
-                              _formatCurrency(widget.total),
+                              _formatCurrency(_finalTotalAfterPromo),
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Colors.blue,
@@ -589,6 +668,38 @@ class _CheckoutModalState extends State<CheckoutModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildLabel("Diskon Promo"),
+                  InkWell(
+                    onTap: () => _showDiscountSelectorDialog(),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color:
+                            _selectedDiscount != null
+                                ? Colors.orange.shade50
+                                : Colors.white,
+                        border: Border.all(
+                          color:
+                              _selectedDiscount != null
+                                  ? Colors.orange
+                                  : Colors.grey.shade300,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _selectedDiscount != null
+                                ? _selectedDiscount!['nama']
+                                : "Pilih Diskon...",
+                          ),
+                          const Icon(Icons.local_offer_outlined, size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   _buildLabel("Metode Pembayaran"),
                   DropdownButtonFormField<String>(
                     value: selectedPaymentMethodId,
@@ -874,6 +985,11 @@ class _CheckoutModalState extends State<CheckoutModal> {
                     "Tanggal",
                     _formatDate(DateTime.now().toString()),
                   ),
+                  _buildMetaText(
+                    "Nomor Antrian",
+                    _orderData['nomorAntrian']?.toString() ??
+                        _antrianController.text,
+                  ),
                   const SizedBox(height: 12),
                   _buildMetaText("Customer", _finalCustomerName),
                 ],
@@ -954,6 +1070,8 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   'kembalian': _finalKembalian,
                   'customerName': _finalCustomerName,
                   'paymentMethodName': paymentMethodName,
+                  'nomorAntrian':
+                      _orderData['nomorAntrian'] ?? _antrianController.text,
                   'cashierName': authProv.user?.name ?? 'Kasir',
                 },
                 outletData: _outletData,
