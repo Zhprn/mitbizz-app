@@ -100,15 +100,17 @@ class _TransaksiPageState extends State<TransaksiPage> {
     try {
       String urlCategory = '/api/categories?outletId=$outletId';
       String urlProduct =
-          '/api/products?outletId=$outletId&page=$page&limit=10';
+          '/api/products?outletId=$outletId&page=$page&limit=12';
+
       if (selectedCategory != "Semua") {
         final cat = categories.firstWhere(
           (c) => c['name'] == selectedCategory,
           orElse: () => {"id": ""},
         );
         final catId = cat['id'];
-        if (catId != null && catId.toString().isNotEmpty)
+        if (catId != null && catId.toString().isNotEmpty) {
           urlProduct += '&categoryId=$catId';
+        }
       }
       if (searchQuery.isNotEmpty) {
         String formattedSearch = searchQuery
@@ -121,16 +123,19 @@ class _TransaksiPageState extends State<TransaksiPage> {
             .join(' ');
         urlProduct += '&search=$formattedSearch';
       }
+
       final responses = await Future.wait([
         authProv.authenticatedGet(urlCategory),
         authProv.authenticatedGet(urlProduct),
       ]);
+
       final catRes = responses[0];
       final prodRes = responses[1];
 
       if (catRes.statusCode == 200 && prodRes.statusCode == 200) {
         final catJson = json.decode(catRes.body);
         final prodJson = json.decode(prodRes.body);
+
         List rawCategories =
             (catJson['data'] is Map && catJson['data']['data'] != null)
                 ? catJson['data']['data']
@@ -141,8 +146,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
                 : [];
 
         int metaTotalPages = 1;
-        if (prodJson['data'] is Map && prodJson['data']['meta'] != null)
+        if (prodJson['data'] is Map && prodJson['data']['meta'] != null) {
           metaTotalPages = prodJson['data']['meta']['totalPages'] ?? 1;
+        }
 
         List<Map<String, dynamic>> formattedProducts = [];
         for (var p in rawProducts) {
@@ -150,7 +156,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
               double.tryParse(p['hargaJual']?.toString() ?? '0') ?? 0.0;
           int stock = p['stock'] ?? 0;
           bool enableTracking = p['enableStockTracking'] ?? false;
-
           bool isAvailable = enableTracking ? (stock > 0) : true;
 
           formattedProducts.add({
@@ -177,11 +182,12 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
         if (mounted) {
           setState(() {
-            if (categories.isEmpty || selectedCategory == "Semua")
+            if (categories.isEmpty || selectedCategory == "Semua") {
               categories = [
                 {"id": "", "name": "Semua", "count": totalSemua},
                 ...tempCategories,
               ];
+            }
             products = formattedProducts;
             currentPage = page;
             totalPages = metaTotalPages;
@@ -189,18 +195,20 @@ class _TransaksiPageState extends State<TransaksiPage> {
           });
         }
       } else {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _errorMessage = "Gagal memuat data";
             _isLoading = false;
           });
+        }
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _errorMessage = "Terjadi kesalahan: $e";
           _isLoading = false;
         });
+      }
     }
   }
 
@@ -279,20 +287,32 @@ class _TransaksiPageState extends State<TransaksiPage> {
   Widget build(BuildContext context) {
     final isShiftActive = context.watch<ShiftProvider>().isShiftActive;
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 900;
+    bool isMobile = screenWidth < 1000;
 
     Widget mainContent = Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildHeaderSejajar(isMobile),
+          if (!isMobile)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text(
+                "Pilih Menu",
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+            ),
 
-          const SizedBox(height: 8),
+          _buildHeaderSejajar(isMobile),
+          const SizedBox(height: 12),
 
           if (!isMobile && categories.isNotEmpty) ...[
             _buildCategoryFilter(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
           ],
 
           Expanded(
@@ -302,10 +322,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
                     : GridView.builder(
                       padding: const EdgeInsets.only(bottom: 10),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: isMobile ? 3 : 4,
-                        childAspectRatio: isMobile ? 1.5 : 1.2,
-                        crossAxisSpacing: 8,
+                        crossAxisCount:
+                            isMobile ? 4 : (screenWidth < 1100 ? 3 : 4),
+                        crossAxisSpacing: 7,
                         mainAxisSpacing: 8,
+                        childAspectRatio: isMobile ? 0.95 : 0.85,
                       ),
                       itemCount: products.length,
                       itemBuilder:
@@ -313,31 +334,19 @@ class _TransaksiPageState extends State<TransaksiPage> {
                               _buildProductCard(products[index]),
                     ),
           ),
+
+          if (!isMobile) _buildPagination(),
         ],
       ),
     );
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: const CustomAppBar(activeMenu: "Transaksi"),
       resizeToAvoidBottomInset: false,
       body:
           isMobile
-              ? Stack(
-                children: [
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 70),
-                      child: mainContent,
-                    ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: _buildFooterMobile(isShiftActive),
-                  ),
-                ],
-              )
+              ? mainContent
               : Row(
                 children: [
                   Expanded(flex: 7, child: mainContent),
@@ -357,6 +366,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   ),
                 ],
               ),
+      bottomNavigationBar: isMobile ? _buildFooterMobile(isShiftActive) : null,
     );
   }
 
@@ -375,6 +385,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
       ),
       child: SafeArea(
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Expanded(
               flex: 3,
@@ -400,9 +411,10 @@ class _TransaksiPageState extends State<TransaksiPage> {
                 ],
               ),
             ),
+
             if (totalPages > 1)
               Expanded(
-                flex: 3,
+                flex: 4,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -423,7 +435,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
                       child: Text(
-                        "$currentPage/$totalPages",
+                        "$currentPage / $totalPages",
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
@@ -447,7 +459,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   ],
                 ),
               ),
-            const SizedBox(width: 8),
+
             SizedBox(
               width: 100,
               height: 38,
@@ -496,49 +508,52 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   Widget _buildHeaderSejajar(bool isMobile) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "Pilih Produk",
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(flex: 3, child: _buildSearchField(double.infinity)),
-
-            if (isMobile) ...[
-              const SizedBox(width: 8),
-              Expanded(flex: 2, child: _buildCategoryDropdown()),
-            ],
+    return SizedBox(
+      height: isMobile ? 25 : 35,
+      child: Row(
+        children: [
+          Expanded(flex: 3, child: _buildSearchField()),
+          if (isMobile) ...[
+            const SizedBox(width: 8),
+            Expanded(flex: 2, child: _buildCategoryDropdown()),
           ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 
-  Widget _buildSearchField(double width) {
+  Widget _buildSearchField() {
     bool isMobile = MediaQuery.of(context).size.width < 900;
     return Container(
-      height: isMobile ? 36 : 45,
+      height: isMobile ? 35 : 45,
       decoration: BoxDecoration(
-        color: const Color(0xFFF1F3F4),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: TextField(
         controller: _searchController,
-        style: TextStyle(fontSize: isMobile ? 12 : 14),
+        onChanged: (value) {
+          if (_debounce?.isActive ?? false) _debounce!.cancel();
+          _debounce = Timer(const Duration(milliseconds: 500), () {
+            setState(() {
+              searchQuery = value;
+              currentPage = 1;
+            });
+            _fetchData(page: 1);
+          });
+        },
+        style: TextStyle(fontSize: isMobile ? 9 : 12),
         decoration: InputDecoration(
-          hintText: "Cari...",
+          hintText: "Cari Produk...",
           prefixIcon: Icon(
             Icons.search,
-            size: isMobile ? 16 : 20,
+            size: isMobile ? 12 : 18,
             color: Colors.grey,
           ),
           border: InputBorder.none,
           isDense: true,
-          contentPadding: EdgeInsets.symmetric(vertical: isMobile ? 8 : 10),
+          contentPadding: EdgeInsets.symmetric(vertical: isMobile ? 8 : 12),
         ),
       ),
     );
@@ -558,10 +573,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
           value: selectedCategory,
           isExpanded: true,
           icon: const Icon(Icons.arrow_drop_down, size: 20),
-          style: const TextStyle(fontSize: 11, color: Colors.black87),
+          style: const TextStyle(fontSize: 9, color: Colors.black87),
           onChanged: (val) {
             if (val != null) {
-              setState(() => selectedCategory = val);
+              setState(() {
+                selectedCategory = val;
+                currentPage = 1;
+              });
               _fetchData(page: 1);
             }
           },
@@ -667,7 +685,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        flex: 4,
+                        flex: 5,
                         child: Container(
                           width: double.infinity,
                           decoration: const BoxDecoration(
@@ -745,21 +763,32 @@ class _TransaksiPageState extends State<TransaksiPage> {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
-
                               const SizedBox(height: 4),
-
-                              Text(
-                                tracking ? "Stok: $stock" : "Stok: ∞",
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w600,
-                                  color:
-                                      tracking && stock < 5
-                                          ? Colors.red
-                                          : Colors.grey.shade600,
-                                ),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    product['kode'] ?? "SKU-0000",
+                                    style: TextStyle(
+                                      color: Colors.grey.shade400,
+                                      fontSize: 8,
+                                    ),
+                                  ),
+                                  Text(
+                                    tracking ? "Stok: $stock" : "Stok: ∞",
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          tracking && stock < 5
+                                              ? Colors.red
+                                              : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 2),
+                              const Spacer(),
                               Text(
                                 "Rp ${_formatRupiah(product['price'])}",
                                 style: const TextStyle(
@@ -848,10 +877,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
                           ),
                         ),
                       ),
-                      Padding(
+                      Container(
                         padding: const EdgeInsets.all(12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
                               product['name'],
@@ -886,7 +916,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
                             Text(
                               "Rp ${_formatRupiah(product['price'])}",
                               style: const TextStyle(
@@ -906,12 +936,11 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   Widget _buildPagination() {
-    bool isMobile = MediaQuery.of(context).size.width < 900;
     if (totalPages <= 1) return const SizedBox.shrink();
 
     return Container(
-      height: 30,
-      margin: const EdgeInsets.only(top: 4, bottom: 2),
+      height: 40,
+      margin: const EdgeInsets.only(top: 12, bottom: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -920,50 +949,57 @@ class _TransaksiPageState extends State<TransaksiPage> {
                 currentPage > 1
                     ? () => _fetchData(page: currentPage - 1)
                     : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Icon(
                 Icons.arrow_back_ios_new,
                 size: 14,
-                color: currentPage > 1 ? Colors.blue : Colors.grey.shade300,
+                color: currentPage > 1 ? Colors.blue : Colors.grey.shade400,
               ),
             ),
           ),
-
-          const SizedBox(width: 10),
-
+          const SizedBox(width: 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(12),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey.shade300),
             ),
             child: Text(
-              "$currentPage / $totalPages",
+              "Hal $currentPage dari $totalPages",
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
                 color: Colors.grey.shade800,
               ),
             ),
           ),
-
-          const SizedBox(width: 10),
-
+          const SizedBox(width: 12),
           InkWell(
             onTap:
                 currentPage < totalPages
                     ? () => _fetchData(page: currentPage + 1)
                     : null,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Icon(
                 Icons.arrow_forward_ios,
                 size: 14,
                 color:
                     currentPage < totalPages
                         ? Colors.blue
-                        : Colors.grey.shade300,
+                        : Colors.grey.shade400,
               ),
             ),
           ),
@@ -981,7 +1017,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "Detail Transaksi (${cartItems.length})",
+                "Pesanan (${cartItems.length})",
                 style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
@@ -1331,113 +1367,4 @@ class DashedLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => false;
-}
-
-class DiscountSelectorDialog extends StatefulWidget {
-  final Function(Map<String, dynamic>) onDiscountSelected;
-  const DiscountSelectorDialog({super.key, required this.onDiscountSelected});
-
-  @override
-  State<DiscountSelectorDialog> createState() => _DiscountSelectorDialogState();
-}
-
-class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
-  List<dynamic> _discounts = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchDiscounts();
-  }
-
-  Future<void> _fetchDiscounts() async {
-    final authProv = context.read<AuthProvider>();
-    final myOutletId = authProv.outletId;
-
-    try {
-      final res = await authProv.authenticatedGet('/api/discounts');
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body);
-        final List rawData = data['data']?['data'] ?? [];
-
-        final filteredDiscounts =
-            rawData.where((d) {
-              if (d['isActive'] != true) return false;
-              if (d['level'] == 'tenant') return true;
-              if (d['level'] == 'outlet' && d['outletId'] == myOutletId)
-                return true;
-              return false;
-            }).toList();
-
-        setState(() {
-          _discounts = filteredDiscounts;
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text(
-        "Pilih Diskon Promo",
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      content: Container(
-        width: 400,
-        constraints: const BoxConstraints(maxHeight: 400),
-        child:
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _discounts.isEmpty
-                ? const Center(
-                  child: Text(
-                    "Tidak ada diskon tersedia",
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                )
-                : ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: _discounts.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final d = _discounts[i];
-                    return ListTile(
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.local_offer,
-                          color: Colors.orange,
-                        ),
-                      ),
-                      title: Text(
-                        d['nama'] ?? '-',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        "Rate: ${d['rate']}% • Level: ${d['level']}",
-                      ),
-                      trailing: const Icon(
-                        Icons.arrow_forward_ios,
-                        size: 14,
-                        color: Colors.grey,
-                      ),
-                      onTap: () => widget.onDiscountSelected(d),
-                    );
-                  },
-                ),
-      ),
-    );
-  }
 }

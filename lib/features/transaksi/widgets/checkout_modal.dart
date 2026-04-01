@@ -64,7 +64,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
   final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
   List<dynamic> _discounts = [];
   Map<String, dynamic>? _selectedDiscount;
-  bool _isLoadingDiscounts = false;
 
   @override
   void initState() {
@@ -94,26 +93,38 @@ class _CheckoutModalState extends State<CheckoutModal> {
         int.tryParse(_bayarController.text.replaceAll(RegExp(r'[^0-9]'), '')) ??
         0;
     setState(() {
-      _kembalian = bayar - _localTotal;
+      _kembalian = bayar - _finalTotalAfterPromo;
     });
   }
 
   void _showDiscountSelectorDialog() {
+    double screenWidth = MediaQuery.of(context).size.width;
+    bool isMobile = screenWidth < 1000;
+
     showDialog(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text("Pilih Diskon Promo"),
+            title: Text(
+              "Pilih Diskon",
+              style: TextStyle(
+                fontSize: isMobile ? 14 : 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(12),
             ),
             content: SizedBox(
-              width: 400,
+              width: isMobile ? 300 : 500,
               child:
                   _discounts.isEmpty
-                      ? const Center(
+                      ? Center(
                         heightFactor: 2,
-                        child: Text("Tidak ada diskon aktif"),
+                        child: Text(
+                          "Tidak ada diskon aktif",
+                          style: TextStyle(fontSize: isMobile ? 11 : 16),
+                        ),
                       )
                       : ListView.builder(
                         shrinkWrap: true,
@@ -121,12 +132,22 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         itemBuilder: (context, i) {
                           final d = _discounts[i];
                           return ListTile(
-                            leading: const Icon(
+                            leading: Icon(
                               Icons.local_offer,
                               color: Colors.orange,
+                              size: isMobile ? 18 : 28,
                             ),
-                            title: Text(d['nama'] ?? 'Diskon'),
-                            subtitle: Text("Potongan ${d['rate']}%"),
+                            title: Text(
+                              d['nama'] ?? 'Diskon',
+                              style: TextStyle(
+                                fontSize: isMobile ? 12 : 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              "Potongan ${d['rate']}%",
+                              style: TextStyle(fontSize: isMobile ? 10 : 14),
+                            ),
                             onTap: () {
                               setState(() {
                                 _selectedDiscount = d;
@@ -139,31 +160,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
                       ),
             ),
           ),
-    );
-  }
-
-  void _recalculateTotals() {
-    int newSubTotal = 0;
-    for (var item in widget.cartItems) {
-      newSubTotal += (item['price'] as int) * (item['qty'] as int);
-    }
-
-    setState(() {
-      _localSubTotal = newSubTotal;
-      _localPajak = (newSubTotal * 0.1).round();
-      _localTotal = _localSubTotal + _localPajak - _localDiskon;
-      _calculateChange();
-    });
-  }
-
-  Widget _buildQtyBtn({required IconData icon, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: Icon(icon, size: 16, color: Colors.blue),
-      ),
     );
   }
 
@@ -200,12 +196,8 @@ class _CheckoutModalState extends State<CheckoutModal> {
         authProv.authenticatedGet('/api/discounts'),
       ]);
 
-      final resPay = responses[0];
-      final resStore = responses[1];
-      final resDisc = responses[2];
-
-      if (resPay.statusCode == 200) {
-        final jsonRes = json.decode(resPay.body);
+      if (responses[0].statusCode == 200) {
+        final jsonRes = json.decode(responses[0].body);
         setState(() {
           paymentMethods = jsonRes['data']['data'] ?? [];
           if (paymentMethods.isNotEmpty) {
@@ -214,8 +206,8 @@ class _CheckoutModalState extends State<CheckoutModal> {
         });
       }
 
-      if (resDisc.statusCode == 200) {
-        final data = json.decode(resDisc.body);
+      if (responses[2].statusCode == 200) {
+        final data = json.decode(responses[2].body);
         final List rawData = data['data']?['data'] ?? [];
 
         final filteredDiscounts =
@@ -224,7 +216,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
               if (d['level'] == 'tenant') return true;
               if (d['level'] == 'outlet' && d['outletId'] == myOutletId)
                 return true;
-
               return false;
             }).toList();
 
@@ -233,8 +224,8 @@ class _CheckoutModalState extends State<CheckoutModal> {
         });
       }
 
-      if (resStore.statusCode == 200) {
-        final jsonRes = json.decode(resStore.body);
+      if (responses[1].statusCode == 200) {
+        final jsonRes = json.decode(responses[1].body);
         setState(() {
           _outletData = jsonRes['data'] ?? {};
           _tenantSettings = jsonRes['data']?['tenant']?['settings'] ?? {};
@@ -255,7 +246,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
     final bayarValue =
         int.tryParse(_bayarController.text.replaceAll(RegExp(r'[^0-9]'), '')) ??
         0;
-    if (bayarValue < widget.total) {
+    if (bayarValue < _finalTotalAfterPromo) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text("Uang bayar kurang!")));
@@ -337,9 +328,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
   Future<void> _processOpenBill() async {
     if (_antrianController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Nomor antrian wajib diisi untuk Open Bill!"),
-        ),
+        const SnackBar(content: Text("Nomor antrian wajib diisi!")),
       );
       return;
     }
@@ -372,7 +361,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.green,
-            content: Text("Bill Berhasil Disimpan (Open Bill)"),
+            content: Text("Open Bill Berhasil"),
           ),
         );
         Navigator.pop(context);
@@ -383,10 +372,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.red,
-          content: Text("Error Open Bill: $e"),
-        ),
+        SnackBar(backgroundColor: Colors.red, content: Text("Error: $e")),
       );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -395,78 +381,47 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    double screenWidth = MediaQuery.of(context).size.width;
+    bool isMobile = screenWidth < 1000;
+
+    double modalWidth;
+    if (screenWidth < 700) {
+      modalWidth = screenWidth * 0.98;
+    } else if (screenWidth < 1000) {
+      double ratio = (screenWidth - 700) / 300;
+      modalWidth = 650 - (ratio * 150);
+    } else {
+      modalWidth = _isFinished ? 600 : 900;
+    }
 
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 4 : 40,
+        vertical: isMobile ? 8 : 24,
+      ),
       child: Container(
-        width: _isFinished ? 500 : 750,
+        width: modalWidth,
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.8,
+          maxHeight: MediaQuery.of(context).size.height * 0.95,
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           child: SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 24),
-            child: _isFinished ? _buildInvoiceView() : _buildCheckoutForm(),
+            padding: EdgeInsets.all(isMobile ? 8 : 32),
+            child:
+                _isFinished
+                    ? _buildInvoiceView(isMobile)
+                    : _buildCheckoutForm(isMobile),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildOrderTypeSelector() {
-    return Row(
-      children: [
-        _orderTypeCard("Dine In", Icons.restaurant, _orderType == "Dine In"),
-        const SizedBox(width: 12),
-        _orderTypeCard(
-          "Take Away",
-          Icons.shopping_bag,
-          _orderType == "Take Away",
-        ),
-      ],
-    );
-  }
-
-  Widget _orderTypeCard(String title, IconData icon, bool isSelected) {
-    return Expanded(
-      child: InkWell(
-        onTap: () => setState(() => _orderType = title),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.blue.shade50 : Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? Colors.blue : Colors.grey.shade300,
-              width: 2,
-            ),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, color: isSelected ? Colors.blue : Colors.grey),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isSelected ? Colors.blue : Colors.grey,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCheckoutForm() {
+  Widget _buildCheckoutForm(bool isMobile) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -474,59 +429,77 @@ class _CheckoutModalState extends State<CheckoutModal> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               "Detail Pesanan",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: isMobile ? 12 : 26,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              iconSize: isMobile ? 16 : 32,
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.close),
             ),
           ],
         ),
-        const SizedBox(height: 20),
+        SizedBox(height: isMobile ? 6 : 24),
 
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              flex: 1,
+              flex: 10,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildOrderTypeSelector(),
-                  const SizedBox(height: 16),
-
+                  _buildOrderTypeSelector(isMobile),
+                  SizedBox(height: isMobile ? 6 : 20),
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: EdgeInsets.all(isMobile ? 4 : 20),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade50,
                       border: Border.all(color: Colors.grey.shade200),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(isMobile ? 6 : 12),
                     ),
                     child: Column(
                       children: [
-                        _summaryRowItem("Subtotal", widget.subTotal),
+                        _summaryRowItem(
+                          "Subtotal",
+                          widget.subTotal,
+                          isMobile: isMobile,
+                        ),
                         _summaryRowItem(
                           "Diskon",
                           _promoDiscountAmount,
                           isNegative: true,
                           color: Colors.red,
+                          isMobile: isMobile,
                         ),
-                        _summaryRowItem("Pajak", widget.pajak),
-                        const Divider(height: 20),
+                        _summaryRowItem(
+                          "Pajak",
+                          widget.pajak,
+                          isMobile: isMobile,
+                        ),
+                        Divider(height: isMobile ? 4 : 24),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text(
+                            Text(
                               "Total Akhir",
-                              style: TextStyle(fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: isMobile ? 8 : 18,
+                              ),
                             ),
                             Text(
                               _formatCurrency(_finalTotalAfterPromo),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Colors.blue,
+                                fontSize: isMobile ? 10 : 24,
                               ),
                             ),
                           ],
@@ -534,145 +507,147 @@ class _CheckoutModalState extends State<CheckoutModal> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-
-                  _buildLabel("Daftar Produk (${widget.cartItems.length})"),
-                  const SizedBox(height: 8),
-
+                  SizedBox(height: isMobile ? 6 : 20),
+                  _buildLabel(
+                    "Daftar Produk (${widget.cartItems.length})",
+                    isMobile,
+                  ),
+                  SizedBox(height: isMobile ? 2 : 12),
                   Container(
-                    constraints: const BoxConstraints(maxHeight: 250),
+                    constraints: BoxConstraints(
+                      maxHeight: isMobile ? 200 : 350,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       border: Border.all(color: Colors.grey.shade200),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(isMobile ? 6 : 12),
                     ),
                     child:
                         widget.cartItems.isEmpty
-                            ? const Center(
+                            ? Center(
                               child: Padding(
-                                padding: EdgeInsets.all(20),
-                                child: Text("Keranjang kosong"),
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  "Keranjang kosong",
+                                  style: TextStyle(fontSize: isMobile ? 8 : 16),
+                                ),
                               ),
                             )
-                            : RawScrollbar(
-                              thumbColor: Colors.grey.shade400,
-                              radius: const Radius.circular(8),
-                              thickness: 4,
-                              thumbVisibility: true,
-                              child: ListView.separated(
-                                shrinkWrap: true,
-                                physics: const ClampingScrollPhysics(),
-                                padding: const EdgeInsets.all(12),
-                                itemCount: widget.cartItems.length,
-                                separatorBuilder:
-                                    (_, __) => const Divider(height: 12),
-                                itemBuilder: (context, index) {
-                                  final item = widget.cartItems[index];
-                                  return Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              item['name'],
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
+                            : ListView.separated(
+                              shrinkWrap: true,
+                              physics: const ClampingScrollPhysics(),
+                              padding: EdgeInsets.all(isMobile ? 4 : 16),
+                              itemCount: widget.cartItems.length,
+                              separatorBuilder:
+                                  (_, __) => Divider(height: isMobile ? 4 : 16),
+                              itemBuilder: (context, index) {
+                                final item = widget.cartItems[index];
+                                return Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item['name'],
+                                            style: TextStyle(
+                                              fontSize: isMobile ? 8 : 16,
+                                              fontWeight: FontWeight.bold,
                                             ),
-                                            Text(
-                                              _formatCurrency(item['price']),
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.shade100,
-                                          borderRadius: BorderRadius.circular(
-                                            20,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            _buildQtyBtn(
-                                              icon: Icons.remove,
-                                              onTap:
-                                                  () => setState(() {
-                                                    if (item['qty'] > 1) {
-                                                      item['qty']--;
-                                                    } else {
-                                                      widget.cartItems.removeAt(
-                                                        index,
-                                                      );
-                                                    }
-                                                    _calculateChange();
-                                                  }),
+                                          Text(
+                                            _formatCurrency(item['price']),
+                                            style: TextStyle(
+                                              fontSize: isMobile ? 7 : 14,
+                                              color: Colors.grey.shade600,
                                             ),
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                  ),
-                                              child: Text(
-                                                "${item['qty']}",
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(24),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          _buildQtyBtn(
+                                            icon: Icons.remove,
+                                            isMobile: isMobile,
+                                            onTap:
+                                                () => setState(() {
+                                                  if (item['qty'] > 1) {
+                                                    item['qty']--;
+                                                  } else {
+                                                    widget.cartItems.removeAt(
+                                                      index,
+                                                    );
+                                                  }
+                                                  _calculateChange();
+                                                }),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 2,
+                                            ),
+                                            child: Text(
+                                              "${item['qty']}",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: isMobile ? 8 : 16,
                                               ),
                                             ),
-                                            _buildQtyBtn(
-                                              icon: Icons.add,
-                                              onTap:
-                                                  () => setState(() {
-                                                    item['qty']++;
-                                                    _calculateChange();
-                                                  }),
-                                            ),
-                                          ],
-                                        ),
+                                          ),
+                                          _buildQtyBtn(
+                                            icon: Icons.add,
+                                            isMobile: isMobile,
+                                            onTap:
+                                                () => setState(() {
+                                                  item['qty']++;
+                                                  _calculateChange();
+                                                }),
+                                          ),
+                                        ],
                                       ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                          color: Colors.red,
-                                          size: 20,
-                                        ),
-                                        onPressed:
-                                            () => setState(() {
-                                              widget.cartItems.removeAt(index);
-                                              _calculateChange();
-                                            }),
+                                    ),
+                                    SizedBox(width: isMobile ? 2 : 12),
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                        size: isMobile ? 12 : 26,
                                       ),
-                                    ],
-                                  );
-                                },
-                              ),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      onPressed:
+                                          () => setState(() {
+                                            widget.cartItems.removeAt(index);
+                                            _calculateChange();
+                                          }),
+                                    ),
+                                  ],
+                                );
+                              },
                             ),
                   ),
                 ],
               ),
             ),
-
-            const SizedBox(width: 24),
-
+            SizedBox(width: isMobile ? 6 : 32),
             Expanded(
-              flex: 1,
+              flex: 10,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildLabel("Diskon Promo"),
+                  _buildLabel("Diskon Promo", isMobile),
                   InkWell(
                     onTap: () => _showDiscountSelectorDialog(),
                     child: Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: EdgeInsets.all(isMobile ? 4 : 16),
                       decoration: BoxDecoration(
                         color:
                             _selectedDiscount != null
@@ -684,84 +659,147 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                   ? Colors.orange
                                   : Colors.grey.shade300,
                         ),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            _selectedDiscount != null
-                                ? _selectedDiscount!['nama']
-                                : "Pilih Diskon...",
+                          Expanded(
+                            child: Text(
+                              _selectedDiscount != null
+                                  ? _selectedDiscount!['nama']
+                                  : "Pilih Diskon...",
+                              style: TextStyle(fontSize: isMobile ? 8 : 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          const Icon(Icons.local_offer_outlined, size: 18),
+                          Icon(
+                            Icons.local_offer_outlined,
+                            size: isMobile ? 10 : 22,
+                          ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  _buildLabel("Metode Pembayaran"),
-                  DropdownButtonFormField<String>(
-                    value: selectedPaymentMethodId,
-                    items:
-                        paymentMethods
-                            .map(
-                              (m) => DropdownMenuItem(
-                                value: m['id'].toString(),
-                                child: Text(m['nama']),
+                  SizedBox(height: isMobile ? 6 : 20),
+                  _buildLabel("Metode Pembayaran", isMobile),
+                  SizedBox(
+                    height: isMobile ? 24 : null,
+                    child: DropdownButtonFormField<String>(
+                      value: selectedPaymentMethodId,
+                      isDense: true,
+                      style: TextStyle(
+                        fontSize: isMobile ? 8 : 16,
+                        color: Colors.black,
+                      ),
+                      iconSize: isMobile ? 12 : 28,
+                      items:
+                          paymentMethods
+                              .map(
+                                (m) => DropdownMenuItem(
+                                  value: m['id'].toString(),
+                                  child: Text(m['nama']),
+                                ),
+                              )
+                              .toList(),
+                      onChanged:
+                          (val) => setState(() {
+                            selectedPaymentMethodId = val;
+                            if (!_isTunaiPayment) {
+                              _bayarController.text =
+                                  _finalTotalAfterPromo.toString();
+                              _kembalian = 0;
+                            }
+                          }),
+                      decoration: _inputDecoration(isMobile: isMobile),
+                    ),
+                  ),
+                  SizedBox(height: isMobile ? 6 : 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildLabel("Nama Customer", isMobile),
+                            SizedBox(
+                              height: isMobile ? 24 : null,
+                              child: TextField(
+                                controller: _customerNameController,
+                                style: TextStyle(fontSize: isMobile ? 8 : 16),
+                                decoration: _inputDecoration(
+                                  hint: "Nama",
+                                  isMobile: isMobile,
+                                ),
                               ),
-                            )
-                            .toList(),
-                    onChanged:
-                        (val) => setState(() {
-                          selectedPaymentMethodId = val;
-                          if (!_isTunaiPayment) {
-                            _bayarController.text = widget.total.toString();
-                            _kembalian = 0;
-                          }
-                        }),
-                    decoration: _inputDecoration(),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildLabel("Nama Customer"),
-                  TextField(
-                    controller: _customerNameController,
-                    decoration: _inputDecoration(hint: "Nama Pelanggan"),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildLabel("Nomor Antrian *"),
-                  TextField(
-                    controller: _antrianController,
-                    decoration: _inputDecoration(hint: "A-01"),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(width: isMobile ? 4 : 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildLabel("No Antrian *", isMobile),
+                            SizedBox(
+                              height: isMobile ? 24 : null,
+                              child: TextField(
+                                controller: _antrianController,
+                                style: TextStyle(fontSize: isMobile ? 8 : 16),
+                                decoration: _inputDecoration(
+                                  hint: "A-01",
+                                  isMobile: isMobile,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                   if (_isTunaiPayment) ...[
+                    SizedBox(height: isMobile ? 6 : 20),
                     Row(
                       children: [
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildLabel("Bayar"),
-                              TextField(
-                                controller: _bayarController,
-                                keyboardType: TextInputType.number,
-                                decoration: _inputDecoration(hint: "0"),
+                              _buildLabel("Bayar", isMobile),
+                              SizedBox(
+                                height: isMobile ? 24 : null,
+                                child: TextField(
+                                  controller: _bayarController,
+                                  keyboardType: TextInputType.number,
+                                  style: TextStyle(fontSize: isMobile ? 8 : 16),
+                                  decoration: _inputDecoration(
+                                    hint: "0",
+                                    isMobile: isMobile,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        SizedBox(width: isMobile ? 4 : 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _buildLabel("Kembalian"),
+                              _buildLabel("Kembalian", isMobile),
                               Container(
+                                height: isMobile ? 24 : null,
                                 width: double.infinity,
-                                padding: const EdgeInsets.all(12),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: isMobile ? 4 : 16,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(
+                                    isMobile ? 6 : 8,
+                                  ),
                                   border: Border.all(
                                     color: Colors.grey.shade300,
                                   ),
@@ -772,6 +810,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                   ),
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
+                                    fontSize: isMobile ? 8 : 16,
                                     color:
                                         _kembalian < 0
                                             ? Colors.red
@@ -784,13 +823,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  if (_isTunaiPayment)
+                    SizedBox(height: isMobile ? 4 : 16),
                     Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: isMobile ? 2 : 12,
+                      runSpacing: isMobile ? 2 : 12,
                       children:
                           [5000, 10000, 20000, 50000, 100000].map((nominal) {
                             return InkWell(
@@ -799,32 +835,38 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                       _bayarController.text =
                                           nominal.toString(),
                               child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isMobile ? 4 : 16,
+                                  vertical: isMobile ? 2 : 10,
                                 ),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   border: Border.all(
                                     color: Colors.grey.shade300,
                                   ),
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(
+                                    isMobile ? 6 : 8,
+                                  ),
                                 ),
                                 child: Text(
                                   _formatCurrency(nominal),
-                                  style: const TextStyle(fontSize: 11),
+                                  style: TextStyle(
+                                    fontSize: isMobile ? 7 : 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             );
                           }).toList(),
                     ),
+                  ],
                 ],
               ),
             ),
           ],
         ),
 
-        const SizedBox(height: 32),
+        SizedBox(height: isMobile ? 8 : 40),
 
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
@@ -833,58 +875,61 @@ class _CheckoutModalState extends State<CheckoutModal> {
               onPressed: _isSubmitting ? null : _processOpenBill,
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFF1976D2)),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 16,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? 6 : 32,
+                  vertical: isMobile ? 4 : 20,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
                 ),
+                minimumSize: isMobile ? const Size(0, 24) : null,
               ),
               child:
                   _isSubmitting
-                      ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ? SizedBox(
+                        width: isMobile ? 10 : 24,
+                        height: isMobile ? 10 : 24,
+                        child: const CircularProgressIndicator(strokeWidth: 2),
                       )
-                      : const Text(
+                      : Text(
                         "Open Bill",
                         style: TextStyle(
-                          color: Color(0xFF1976D2),
+                          color: const Color(0xFF1976D2),
                           fontWeight: FontWeight.bold,
+                          fontSize: isMobile ? 8 : 18,
                         ),
                       ),
             ),
-            const SizedBox(width: 12),
-
+            SizedBox(width: isMobile ? 4 : 16),
             ElevatedButton(
               onPressed: _isSubmitting ? null : _processCheckout,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1976D2),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 32,
-                  vertical: 16,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobile ? 8 : 40,
+                  vertical: isMobile ? 4 : 20,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
                 ),
+                minimumSize: isMobile ? const Size(0, 24) : null,
               ),
               child:
                   _isSubmitting
-                      ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
+                      ? SizedBox(
+                        width: isMobile ? 10 : 24,
+                        height: isMobile ? 10 : 24,
+                        child: const CircularProgressIndicator(
                           color: Colors.white,
                           strokeWidth: 2,
                         ),
                       )
-                      : const Text(
-                        "Selesaikan Pembayaran",
+                      : Text(
+                        "Selesaikan Pesanan",
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
+                          fontSize: isMobile ? 8 : 18,
                         ),
                       ),
             ),
@@ -894,7 +939,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
     );
   }
 
-  Widget _buildInvoiceView() {
+  Widget _buildInvoiceView(bool isMobile) {
     final authProv = context.read<AuthProvider>();
     String paymentMethodName = '-';
     try {
@@ -915,34 +960,37 @@ class _CheckoutModalState extends State<CheckoutModal> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
+            Text(
               "Invoice",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: isMobile ? 12 : 24,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             InkWell(
               onTap: () => Navigator.pop(context),
-              child: const Icon(Icons.close, size: 20),
+              child: Icon(Icons.close, size: isMobile ? 14 : 28),
             ),
           ],
         ),
-        const Divider(height: 32),
+        Divider(height: isMobile ? 12 : 40),
         Center(
           child: Column(
             children: [
               if (tenantImage != null && tenantImage.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.network(
                       fullImageUrl,
-                      height: 60,
-                      width: 60,
+                      height: isMobile ? 30 : 80,
+                      width: isMobile ? 30 : 80,
                       fit: BoxFit.cover,
                       errorBuilder:
-                          (context, error, stackTrace) => const Icon(
+                          (context, error, stackTrace) => Icon(
                             Icons.storefront,
-                            size: 50,
+                            size: isMobile ? 24 : 60,
                             color: Colors.grey,
                           ),
                     ),
@@ -950,30 +998,41 @@ class _CheckoutModalState extends State<CheckoutModal> {
                 ),
               Text(
                 _outletData['nama'] ?? 'Store',
-                style: const TextStyle(
-                  fontSize: 20,
+                style: TextStyle(
+                  fontSize: isMobile ? 12 : 26,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: isMobile ? 2 : 8),
               Text(
                 _outletData['alamat'] ?? '-',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(
+                  fontSize: isMobile ? 8 : 14,
+                  color: Colors.grey.shade600,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
-        const Divider(height: 32),
+        Divider(height: isMobile ? 12 : 40),
         Row(
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildMetaText("Invoice", _orderData['orderNumber'] ?? '-'),
-                  const SizedBox(height: 12),
-                  _buildMetaText("Kasir", authProv.user?.name ?? 'Kasir'),
+                  _buildMetaText(
+                    "Invoice",
+                    _orderData['orderNumber'] ?? '-',
+                    isMobile,
+                  ),
+                  SizedBox(height: isMobile ? 4 : 16),
+                  _buildMetaText(
+                    "Kasir",
+                    authProv.user?.name ?? 'Kasir',
+                    isMobile,
+                  ),
                 ],
               ),
             ),
@@ -984,38 +1043,45 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   _buildMetaText(
                     "Tanggal",
                     _formatDate(DateTime.now().toString()),
+                    isMobile,
                   ),
+                  SizedBox(height: isMobile ? 4 : 16),
                   _buildMetaText(
-                    "Nomor Antrian",
-                    _orderData['nomorAntrian']?.toString() ??
-                        _antrianController.text,
+                    "Customer",
+                    "${_orderData['nomorAntrian'] ?? _antrianController.text} / $_finalCustomerName",
+                    isMobile,
                   ),
-                  const SizedBox(height: 12),
-                  _buildMetaText("Customer", _finalCustomerName),
                 ],
               ),
             ),
           ],
         ),
-        const Divider(height: 32),
+        Divider(height: isMobile ? 12 : 40),
         ..._fetchedOrderItems.map((item) {
           String pName =
               item['product'] != null
                   ? (item['product']['nama'] ?? item['product']['name'] ?? '-')
                   : '-';
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+            padding: EdgeInsets.symmetric(
+              vertical: isMobile ? 2 : 8,
+              horizontal: 2,
+            ),
             child: Row(
               children: [
                 Expanded(
                   flex: 3,
-                  child: Text(pName, style: const TextStyle(fontSize: 12)),
+                  child: Text(
+                    pName,
+                    style: TextStyle(fontSize: isMobile ? 9 : 16),
+                  ),
                 ),
                 Expanded(
                   flex: 1,
                   child: Text(
-                    "${item['quantity']}",
-                    style: const TextStyle(fontSize: 12),
+                    "${item['quantity']}x",
+                    style: TextStyle(fontSize: isMobile ? 9 : 16),
+                    textAlign: TextAlign.center,
                   ),
                 ),
                 Expanded(
@@ -1023,7 +1089,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                   child: Text(
                     _formatCurrency(item['total']),
                     textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: isMobile ? 9 : 16),
                   ),
                 ),
               ],
@@ -1033,21 +1099,23 @@ class _CheckoutModalState extends State<CheckoutModal> {
         const Divider(),
         _buildSummaryRow(
           "Total Tagihan:",
-          _formatCurrency(widget.total),
+          _formatCurrency(_finalTotalAfterPromo),
           isBold: true,
-          fontSize: 16,
+          fontSize: isMobile ? 10 : 20,
         ),
         _buildSummaryRow(
           "Dibayar ($paymentMethodName):",
           _formatCurrency(_orderData['bayar'] ?? 0),
+          fontSize: isMobile ? 9 : 16,
         ),
         _buildSummaryRow(
           "Kembalian:",
           _formatCurrency(_orderData['kembali'] ?? 0),
           valueColor: Colors.green,
           isBold: true,
+          fontSize: isMobile ? 10 : 18,
         ),
-        const SizedBox(height: 24),
+        SizedBox(height: isMobile ? 12 : 40),
         ElevatedButton.icon(
           onPressed: () async {
             try {
@@ -1084,28 +1152,127 @@ class _CheckoutModalState extends State<CheckoutModal> {
               ).showSnackBar(SnackBar(content: Text("Error: $e")));
             }
           },
-          icon: const Icon(Icons.print, color: Colors.white),
-          label: const Text("Cetak", style: TextStyle(color: Colors.white)),
+          icon: Icon(
+            Icons.print,
+            color: Colors.white,
+            size: isMobile ? 14 : 26,
+          ),
+          label: Text(
+            "Cetak Struk",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isMobile ? 10 : 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF1976D2),
-            minimumSize: const Size(double.infinity, 50),
+            minimumSize: Size(double.infinity, isMobile ? 32 : 60),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildMetaText(String label, String value) {
+  Widget _buildOrderTypeSelector(bool isMobile) {
+    return Row(
+      children: [
+        _orderTypeCard(
+          "Dine In",
+          Icons.restaurant,
+          _orderType == "Dine In",
+          isMobile,
+        ),
+        SizedBox(width: isMobile ? 4 : 16),
+        _orderTypeCard(
+          "Take Away",
+          Icons.shopping_bag,
+          _orderType == "Take Away",
+          isMobile,
+        ),
+      ],
+    );
+  }
+
+  Widget _orderTypeCard(
+    String title,
+    IconData icon,
+    bool isSelected,
+    bool isMobile,
+  ) {
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => _orderType = title),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: EdgeInsets.symmetric(vertical: isMobile ? 4 : 20),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.blue.shade50 : Colors.white,
+            borderRadius: BorderRadius.circular(isMobile ? 6 : 10),
+            border: Border.all(
+              color: isSelected ? Colors.blue : Colors.grey.shade300,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? Colors.blue : Colors.grey,
+                size: isMobile ? 12 : 32,
+              ),
+              SizedBox(height: isMobile ? 2 : 12),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: isMobile ? 8 : 16,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? Colors.blue : Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQtyBtn({
+    required IconData icon,
+    required VoidCallback onTap,
+    required bool isMobile,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: EdgeInsets.all(isMobile ? 2 : 8),
+        child: Icon(icon, size: isMobile ? 8 : 20, color: Colors.blue),
+      ),
+    );
+  }
+
+  Widget _buildMetaText(String label, String value, bool isMobile) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+          style: TextStyle(
+            fontSize: isMobile ? 8 : 14,
+            color: Colors.grey.shade500,
+          ),
         ),
+        SizedBox(height: isMobile ? 2 : 6),
         Text(
           value,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: isMobile ? 9 : 18,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
@@ -1119,7 +1286,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
     double fontSize = 13,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.symmetric(vertical: fontSize > 16 ? 6 : 2),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -1148,17 +1315,21 @@ class _CheckoutModalState extends State<CheckoutModal> {
     int value, {
     bool isNegative = false,
     Color? color,
+    required bool isMobile,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
+      padding: EdgeInsets.symmetric(vertical: isMobile ? 1 : 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          Text(
+            label,
+            style: TextStyle(fontSize: isMobile ? 8 : 16, color: Colors.grey),
+          ),
           Text(
             "${isNegative ? '-' : ''}${_formatCurrency(value)}",
             style: TextStyle(
-              fontSize: 12,
+              fontSize: isMobile ? 8 : 16,
               fontWeight: FontWeight.w600,
               color: color,
             ),
@@ -1168,12 +1339,15 @@ class _CheckoutModalState extends State<CheckoutModal> {
     );
   }
 
-  Widget _buildLabel(String text) {
+  Widget _buildLabel(String text, bool isMobile) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: EdgeInsets.only(bottom: isMobile ? 2 : 10),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+        style: TextStyle(
+          fontSize: isMobile ? 8 : 16,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -1191,11 +1365,18 @@ class _CheckoutModalState extends State<CheckoutModal> {
     }
   }
 
-  InputDecoration _inputDecoration({String? hint}) {
+  InputDecoration _inputDecoration({String? hint, required bool isMobile}) {
     return InputDecoration(
       hintText: hint,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      isDense: true,
+      hintStyle: TextStyle(fontSize: isMobile ? 8 : 16),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: 6,
+        vertical: isMobile ? 6 : 18,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
+      ),
     );
   }
 }
