@@ -48,60 +48,81 @@ class OpenBillInvoiceModal extends StatelessWidget {
         tenantImage != null && tenantImage.isNotEmpty
             ? '$baseUrl/$tenantImage'
             : '';
-
     final double jumlahDiskon =
         double.tryParse(orderData['jumlahDiskon']?.toString() ?? '0') ?? 0;
     final double jumlahPajak =
         double.tryParse(orderData['jumlahPajak']?.toString() ?? '0') ?? 0;
 
+    double screenWidth = MediaQuery.of(context).size.width;
+    bool isCompact = screenWidth < 1000;
+    bool isSmall = screenWidth < 700;
+
+    double dynamicWidth;
+    if (isSmall) {
+      dynamicWidth = screenWidth * 0.75;
+    } else if (isCompact) {
+      dynamicWidth = screenWidth * 0.80;
+    } else {
+      dynamicWidth = 500;
+    }
+
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(isCompact ? 8 : 16),
+      ),
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: isCompact ? 8 : 20,
+        vertical: isCompact ? 12 : 24,
+      ),
       child: Container(
-        width: 500,
-        padding: const EdgeInsets.all(24),
+        width: dynamicWidth,
+        padding: EdgeInsets.all(isCompact ? 8 : 24),
         child: SingleChildScrollView(
           physics: const ClampingScrollPhysics(),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "Invoice",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  InkWell(
-                    onTap: () {
-                      Navigator.pop(context);
-                      onClose();
-                    },
-                    child: const Icon(Icons.close, size: 20),
-                  ),
-                ],
-              ),
-              const Divider(height: 32),
-
+              if (!isCompact) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      "Invoice",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () {
+                        Navigator.pop(context);
+                        onClose();
+                      },
+                      child: const Icon(Icons.close, size: 20),
+                    ),
+                  ],
+                ),
+                const Divider(height: 32),
+              ],
               Center(
                 child: Column(
                   children: [
                     if (fullImageUrl.isNotEmpty)
                       Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
+                        padding: EdgeInsets.only(bottom: isCompact ? 4 : 12),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(6),
                           child: Image.network(
                             fullImageUrl,
-                            height: 60,
-                            width: 60,
+                            height: isCompact ? 28 : 60,
+                            width: isCompact ? 28 : 60,
                             fit: BoxFit.cover,
                             errorBuilder:
-                                (context, error, stackTrace) => const Icon(
+                                (context, error, stackTrace) => Icon(
                                   Icons.storefront,
-                                  size: 50,
+                                  size: isCompact ? 24 : 50,
                                   color: Colors.grey,
                                 ),
                           ),
@@ -109,16 +130,16 @@ class OpenBillInvoiceModal extends StatelessWidget {
                       ),
                     Text(
                       outletData['nama'] ?? 'Store',
-                      style: const TextStyle(
-                        fontSize: 20,
+                      style: TextStyle(
+                        fontSize: isCompact ? 11 : 20,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: isCompact ? 1 : 8),
                     Text(
                       outletData['alamat'] ?? '-',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: isCompact ? 7 : 12,
                         color: Colors.grey.shade600,
                       ),
                       textAlign: TextAlign.center,
@@ -126,8 +147,7 @@ class OpenBillInvoiceModal extends StatelessWidget {
                   ],
                 ),
               ),
-              const Divider(height: 32),
-
+              Divider(height: isCompact ? 8 : 32),
               Row(
                 children: [
                   Expanded(
@@ -137,15 +157,19 @@ class OpenBillInvoiceModal extends StatelessWidget {
                         _buildMetaText(
                           "Invoice",
                           orderData['orderNumber'] ?? '-',
+                          isCompact,
                         ),
+                        SizedBox(height: isCompact ? 4 : 12),
                         _buildMetaText(
-                          "Nomor Antrian",
-                          orderData['nomorAntrian'] ?? '-',
+                          "Antrian",
+                          orderData['nomorAntrian']?.toString() ?? '-',
+                          isCompact,
                         ),
-                        const SizedBox(height: 12),
+                        SizedBox(height: isCompact ? 4 : 12),
                         _buildMetaText(
                           "Kasir",
                           orderData['cashierName'] ?? '-',
+                          isCompact,
                         ),
                       ],
                     ),
@@ -157,19 +181,20 @@ class OpenBillInvoiceModal extends StatelessWidget {
                         _buildMetaText(
                           "Tanggal",
                           _formatDate(DateTime.now().toString()),
+                          isCompact,
                         ),
-                        const SizedBox(height: 12),
+                        SizedBox(height: isCompact ? 4 : 12),
                         _buildMetaText(
                           "Customer",
                           orderData['customerName'] ?? 'Guest',
+                          isCompact,
                         ),
                       ],
                     ),
                   ),
                 ],
               ),
-              const Divider(height: 32),
-
+              Divider(height: isCompact ? 8 : 32),
               ...orderItems.map((item) {
                 String pName =
                     item['product'] != null
@@ -178,9 +203,9 @@ class OpenBillInvoiceModal extends StatelessWidget {
                             '-')
                         : '-';
                 return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 12,
+                  padding: EdgeInsets.symmetric(
+                    vertical: isCompact ? 1 : 8,
+                    horizontal: isCompact ? 2 : 12,
                   ),
                   child: Row(
                     children: [
@@ -188,14 +213,14 @@ class OpenBillInvoiceModal extends StatelessWidget {
                         flex: 3,
                         child: Text(
                           pName,
-                          style: const TextStyle(fontSize: 12),
+                          style: TextStyle(fontSize: isCompact ? 8 : 12),
                         ),
                       ),
                       Expanded(
                         flex: 1,
                         child: Text(
-                          "${item['quantity']}",
-                          style: const TextStyle(fontSize: 12),
+                          "x${item['quantity']}",
+                          style: TextStyle(fontSize: isCompact ? 8 : 12),
                         ),
                       ),
                       Expanded(
@@ -203,70 +228,68 @@ class OpenBillInvoiceModal extends StatelessWidget {
                         child: Text(
                           _formatCurrency(item['total']),
                           textAlign: TextAlign.right,
-                          style: const TextStyle(fontSize: 12),
+                          style: TextStyle(fontSize: isCompact ? 8 : 12),
                         ),
                       ),
                     ],
                   ),
                 );
               }),
-              const Divider(),
-
+              Divider(height: isCompact ? 6 : 16),
               if (orderData['subtotal'] != null)
                 _buildSummaryRow(
                   "Subtotal:",
                   _formatCurrency(orderData['subtotal']),
+                  isCompact: isCompact,
                 ),
-
               if (jumlahDiskon > 0)
                 _buildSummaryRow(
-                  "Diskon Promo:",
+                  "Diskon:",
                   "- ${_formatCurrency(jumlahDiskon)}",
                   valueColor: Colors.red,
+                  isCompact: isCompact,
                 ),
-
               if (jumlahPajak > 0)
-                _buildSummaryRow("Pajak:", _formatCurrency(jumlahPajak)),
-
-              const SizedBox(height: 8),
-
+                _buildSummaryRow(
+                  "Pajak:",
+                  _formatCurrency(jumlahPajak),
+                  isCompact: isCompact,
+                ),
+              SizedBox(height: isCompact ? 2 : 8),
               _buildSummaryRow(
-                "Total Tagihan:",
+                "Total:",
                 _formatCurrency(orderData['total']),
                 isBold: true,
-                fontSize: 16,
+                fontSize: isCompact ? 10 : 16,
+                isCompact: isCompact,
               ),
               _buildSummaryRow(
-                "Dibayar ($paymentMethodName):",
+                "Bayar ($paymentMethodName):",
                 _formatCurrency(orderData['tunai']),
+                isCompact: isCompact,
               ),
               _buildSummaryRow(
-                "Kembalian:",
+                "Kembali:",
                 _formatCurrency(orderData['kembalian']),
                 valueColor: Colors.green,
                 isBold: true,
+                isCompact: isCompact,
               ),
-              const SizedBox(height: 24),
-
+              SizedBox(height: isCompact ? 8 : 24),
               ElevatedButton.icon(
                 onPressed: () async {
                   try {
                     List<BluetoothDevice> connected =
                         await FlutterBluePlus.connectedDevices;
                     if (connected.isEmpty) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              "Tidak ada printer Bluetooth yang terhubung!",
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Printer tidak terhubung!"),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
                       return;
                     }
-
                     await PrintService.printInvoice(
                       device: connected.first,
                       orderData: orderData,
@@ -275,29 +298,28 @@ class OpenBillInvoiceModal extends StatelessWidget {
                       logoUrl: fullImageUrl.isNotEmpty ? fullImageUrl : null,
                     );
                   } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text("Print Error: $e"),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
+                    debugPrint("Print Error: $e");
                   }
                 },
-                icon: const Icon(Icons.print, color: Colors.white),
-                label: const Text(
+                icon: Icon(
+                  Icons.print,
+                  color: Colors.white,
+                  size: isCompact ? 10 : 20,
+                ),
+                label: Text(
                   "Cetak Struk",
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
+                    fontSize: isCompact ? 8 : 14,
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1976D2),
-                  minimumSize: const Size(double.infinity, 50),
+                  minimumSize: Size(double.infinity, isCompact ? 24 : 50),
+                  padding: EdgeInsets.zero,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(isCompact ? 6 : 10),
                   ),
                 ),
               ),
@@ -308,17 +330,23 @@ class OpenBillInvoiceModal extends StatelessWidget {
     );
   }
 
-  Widget _buildMetaText(String label, String value) {
+  Widget _buildMetaText(String label, String value, bool isCompact) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+          style: TextStyle(
+            fontSize: isCompact ? 7 : 11,
+            color: Colors.grey.shade500,
+          ),
         ),
         Text(
           value,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            fontSize: isCompact ? 8 : 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
@@ -329,24 +357,26 @@ class OpenBillInvoiceModal extends StatelessWidget {
     String value, {
     Color? valueColor,
     bool isBold = false,
-    double fontSize = 13,
+    double? fontSize,
+    required bool isCompact,
   }) {
+    double f = fontSize ?? (isCompact ? 8 : 13);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.symmetric(vertical: isCompact ? 1 : 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
             style: TextStyle(
-              fontSize: fontSize,
+              fontSize: f,
               fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
             ),
           ),
           Text(
             value,
             style: TextStyle(
-              fontSize: fontSize,
+              fontSize: f,
               fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
               color: valueColor,
             ),

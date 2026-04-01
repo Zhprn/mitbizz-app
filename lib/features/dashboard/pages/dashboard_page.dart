@@ -120,17 +120,20 @@ class _DashboardPageState extends State<DashboardPage> {
       decimalDigits: 0,
     );
 
+    double screenWidth = MediaQuery.of(context).size.width;
+    bool isMobile = screenWidth < 800;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: const CustomAppBar(activeMenu: "Dashboard"),
       body: Column(
         children: [
-          _buildShiftHeader(shiftProv, authProv),
+          _buildShiftHeader(shiftProv, authProv, isMobile),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _fetchDashboardData,
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(isMobile ? 12 : 24),
                 physics: const AlwaysScrollableScrollPhysics(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -138,29 +141,34 @@ class _DashboardPageState extends State<DashboardPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _buildStat(
-                          formatCurrency.format(_totalDiskon),
-                          "Total Diskon",
-                          Icons.discount_outlined,
+                        Expanded(
+                          child: _buildStat(
+                            formatCurrency.format(_totalDiskon),
+                            "Total Diskon",
+                            Icons.discount_outlined,
+                            isMobile,
+                          ),
                         ),
-                        _buildStat(
-                          formatCurrency.format(_totalPajak),
-                          "Total Pajak",
-                          Icons.account_balance_outlined,
+                        SizedBox(width: isMobile ? 8 : 16),
+                        Expanded(
+                          child: _buildStat(
+                            formatCurrency.format(_totalPajak),
+                            "Total Pajak",
+                            Icons.account_balance_outlined,
+                            isMobile,
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 32),
-
-                    const Text(
+                    SizedBox(height: isMobile ? 16 : 32),
+                    Text(
                       "Table Management",
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: isMobile ? 14 : 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 16),
-
+                    SizedBox(height: isMobile ? 8 : 16),
                     _isLoadingDashboard
                         ? const Center(child: CircularProgressIndicator())
                         : _openBills.isEmpty
@@ -173,16 +181,20 @@ class _DashboardPageState extends State<DashboardPage> {
                             ),
                           ),
                         )
-                        : Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children:
-                              _openBills
-                                  .map(
-                                    (bill) =>
-                                        _buildTableCard(bill, formatCurrency),
-                                  )
-                                  .toList(),
+                        : GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate:
+                              SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: isMobile ? 250 : 350,
+                                mainAxisExtent: isMobile ? 190 : 230,
+                                crossAxisSpacing: isMobile ? 8 : 16,
+                                mainAxisSpacing: isMobile ? 8 : 16,
+                              ),
+                          itemCount: _openBills.length,
+                          itemBuilder: (context, index) {
+                            return _buildTableCard(_openBills[index], isMobile);
+                          },
                         ),
                   ],
                 ),
@@ -194,18 +206,20 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildTableCard(dynamic bill, NumberFormat format) {
+  Widget _buildTableCard(dynamic bill, bool isMobile) {
     final List items = bill['orderItems'] as List? ?? [];
-
     DateTime created = DateTime.parse(bill['createdAt']).toLocal();
     String timeStr = DateFormat('HH:mm').format(created);
 
+    final int maxItemsToShow = 2;
+    final List displayedItems = items.take(maxItemsToShow).toList();
+    final int remainingItems = items.length - displayedItems.length;
+
     return Container(
-      width: 300,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isMobile ? 8 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(isMobile ? 8 : 12),
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
@@ -220,58 +234,85 @@ class _DashboardPageState extends State<DashboardPage> {
         children: [
           Text(
             "Meja ${bill['nomorAntrian'] ?? '-'}",
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: isMobile ? 12 : 16,
+            ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Row(
             children: [
-              Text(
-                bill['notes']
-                        ?.toString()
-                        .replaceAll(RegExp(r'\[.*?\]'), '')
-                        .trim() ??
-                    "Guest",
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              Expanded(
+                child: Text(
+                  bill['notes']
+                          ?.toString()
+                          .replaceAll(RegExp(r'\[.*?\]'), '')
+                          .trim() ??
+                      "Guest",
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: isMobile ? 9 : 13,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              const SizedBox(width: 8),
-              const Icon(Icons.circle, size: 6, color: Colors.orange),
+              const SizedBox(width: 4),
+              const Icon(Icons.circle, size: 4, color: Colors.orange),
               const SizedBox(width: 4),
               Text(
                 timeStr,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: isMobile ? 8 : 12,
+                  color: Colors.grey,
+                ),
               ),
             ],
           ),
-          const Divider(height: 24),
-
-          ...items
-              .take(2)
-              .map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item['product']?['nama'] ?? '-',
-                          style: const TextStyle(fontSize: 12),
-                          overflow: TextOverflow.ellipsis,
+          Divider(height: isMobile ? 8 : 24),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ...displayedItems.map((item) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item['product']?['nama'] ?? '-',
+                            style: TextStyle(fontSize: isMobile ? 9 : 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                      ),
-                      Text(
-                        "x${item['quantity']}",
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
+                        Text(
+                          "x${item['quantity']}",
+                          style: TextStyle(
+                            fontSize: isMobile ? 9 : 12,
+                            color: Colors.grey,
+                          ),
                         ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                if (remainingItems > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      "... (+$remainingItems lagi)",
+                      style: TextStyle(
+                        fontSize: isMobile ? 8 : 11,
+                        color: Colors.grey.shade500,
+                        fontStyle: FontStyle.italic,
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-          const SizedBox(height: 16),
-
+              ],
+            ),
+          ),
+          SizedBox(height: isMobile ? 4 : 8),
           Row(
             children: [
               Expanded(
@@ -289,14 +330,22 @@ class _DashboardPageState extends State<DashboardPage> {
                   },
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Colors.grey.shade300),
+                    padding: EdgeInsets.symmetric(vertical: isMobile ? 6 : 12),
+                    minimumSize: isMobile ? const Size(0, 28) : null,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(isMobile ? 4 : 8),
+                    ),
                   ),
-                  child: const Text(
+                  child: Text(
                     "Detail",
-                    style: TextStyle(color: Colors.black87, fontSize: 12),
+                    style: TextStyle(
+                      color: Colors.black87,
+                      fontSize: isMobile ? 9 : 12,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              SizedBox(width: isMobile ? 6 : 8),
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
@@ -313,10 +362,18 @@ class _DashboardPageState extends State<DashboardPage> {
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0061C1),
+                    padding: EdgeInsets.symmetric(vertical: isMobile ? 6 : 12),
+                    minimumSize: isMobile ? const Size(0, 28) : null,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(isMobile ? 4 : 8),
+                    ),
                   ),
-                  child: const Text(
-                    "Tagih Sekarang",
-                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  child: Text(
+                    "Tagih",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isMobile ? 9 : 12,
+                    ),
                   ),
                 ),
               ),
@@ -327,33 +384,42 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildStat(String val, String label, IconData icon) {
+  Widget _buildStat(String val, String label, IconData icon, bool isMobile) {
     return Container(
-      width: (MediaQuery.of(context).size.width - 110) / 2,
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(isMobile ? 8 : 12),
       decoration: BoxDecoration(
+        color: Colors.white,
         border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(isMobile ? 8 : 12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: const Color(0xFF0061C1)),
-          const SizedBox(height: 8),
+          Icon(icon, size: isMobile ? 14 : 20, color: const Color(0xFF0061C1)),
+          SizedBox(height: isMobile ? 4 : 8),
           Text(
             val,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: isMobile ? 11 : 14,
+              fontWeight: FontWeight.bold,
+            ),
             overflow: TextOverflow.ellipsis,
           ),
-          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(
+            label,
+            style: TextStyle(fontSize: isMobile ? 9 : 11, color: Colors.grey),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildShiftHeader(dynamic shiftProv, dynamic authProv) {
+  Widget _buildShiftHeader(dynamic shiftProv, dynamic authProv, bool isMobile) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 12 : 24,
+        vertical: isMobile ? 12 : 24,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
@@ -366,16 +432,20 @@ class _DashboardPageState extends State<DashboardPage> {
             children: [
               Text(
                 shiftProv.isShiftActive ? "Shift Aktif" : "Shift Nonaktif",
-                style: const TextStyle(
-                  fontSize: 20,
+                style: TextStyle(
+                  fontSize: isMobile ? 14 : 20,
                   fontWeight: FontWeight.bold,
                 ),
               ),
+              SizedBox(height: isMobile ? 2 : 4),
               Text(
                 shiftProv.isShiftActive
                     ? "Mulai: ${shiftProv.startTime ?? '-'}"
                     : "Silakan mulai shift",
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: isMobile ? 10 : 13,
+                ),
               ),
             ],
           ),
@@ -386,14 +456,28 @@ class _DashboardPageState extends State<DashboardPage> {
                       ? Colors.red
                       : const Color(0xFF0061C1),
               foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(
+                horizontal: isMobile ? 8 : 16,
+                vertical: isMobile ? 6 : 12,
+              ),
+              minimumSize: isMobile ? const Size(0, 30) : null,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(isMobile ? 4 : 8),
+              ),
             ),
             onPressed:
                 () =>
                     shiftProv.isShiftActive
                         ? _showClosingShiftModal()
                         : shiftProv.startShift(authProv),
-            icon: Icon(shiftProv.isShiftActive ? Icons.stop : Icons.play_arrow),
-            label: Text(shiftProv.isShiftActive ? "Akhiri" : "Mulai"),
+            icon: Icon(
+              shiftProv.isShiftActive ? Icons.stop : Icons.play_arrow,
+              size: isMobile ? 14 : 20,
+            ),
+            label: Text(
+              shiftProv.isShiftActive ? "Akhiri" : "Mulai",
+              style: TextStyle(fontSize: isMobile ? 10 : 14),
+            ),
           ),
         ],
       ),
@@ -403,13 +487,17 @@ class _DashboardPageState extends State<DashboardPage> {
   void _showClosingShiftModal() {
     final tutupController = TextEditingController();
     final catatanController = TextEditingController();
+    bool isMobile = MediaQuery.of(context).size.width < 800;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder:
           (context) => AlertDialog(
-            title: const Text("Akhiri Shift"),
+            title: Text(
+              "Akhiri Shift",
+              style: TextStyle(fontSize: isMobile ? 14 : 20),
+            ),
             content: Form(
               key: _formKey,
               child: Column(
@@ -418,13 +506,21 @@ class _DashboardPageState extends State<DashboardPage> {
                   TextFormField(
                     controller: tutupController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: "Uang Fisik"),
+                    style: TextStyle(fontSize: isMobile ? 12 : 14),
+                    decoration: InputDecoration(
+                      labelText: "Uang Fisik",
+                      labelStyle: TextStyle(fontSize: isMobile ? 12 : 14),
+                    ),
                     validator:
                         (v) => (v == null || v.isEmpty) ? "Wajib diisi" : null,
                   ),
                   TextFormField(
                     controller: catatanController,
-                    decoration: const InputDecoration(labelText: "Catatan"),
+                    style: TextStyle(fontSize: isMobile ? 12 : 14),
+                    decoration: InputDecoration(
+                      labelText: "Catatan",
+                      labelStyle: TextStyle(fontSize: isMobile ? 12 : 14),
+                    ),
                   ),
                 ],
               ),
@@ -432,7 +528,10 @@ class _DashboardPageState extends State<DashboardPage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text("Batal"),
+                child: Text(
+                  "Batal",
+                  style: TextStyle(fontSize: isMobile ? 12 : 14),
+                ),
               ),
               ElevatedButton(
                 onPressed: () async {
@@ -449,7 +548,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     }
                   }
                 },
-                child: const Text("Akhiri"),
+                child: Text(
+                  "Akhiri",
+                  style: TextStyle(fontSize: isMobile ? 12 : 14),
+                ),
               ),
             ],
           ),
