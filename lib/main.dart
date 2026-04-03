@@ -15,16 +15,20 @@ import 'features/dashboard/pages/dashboard_page.dart';
 import 'features/transaksi/pages/transaksi_page.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/services.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   await dotenv.load(fileName: ".env");
   await initializeDateFormatting('id_ID', null);
+
   await [
     Permission.location,
     Permission.bluetoothScan,
     Permission.bluetoothConnect,
   ].request();
+
   await BetterAuth.init(
     baseUrl: Uri(scheme: "https", host: dotenv.env['BASE_URL']),
   );
@@ -44,8 +48,22 @@ void main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+
+    Future.delayed(Duration.zero, () {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

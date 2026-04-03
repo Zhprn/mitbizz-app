@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -11,7 +12,12 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   const CustomAppBar({super.key, required this.activeMenu});
 
   @override
-  Size get preferredSize => const Size.fromHeight(70);
+  Size get preferredSize {
+    double screenWidth =
+        PlatformDispatcher.instance.views.first.physicalSize.width /
+        PlatformDispatcher.instance.views.first.devicePixelRatio;
+    return Size.fromHeight(screenWidth < 800 ? 38.0 : 45.0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,92 +26,137 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     final user = authProv.user;
 
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 1000;
+    bool isMobile = screenWidth < 800;
 
-    return AppBar(
-      backgroundColor: Colors.white,
-      elevation: 0,
-      automaticallyImplyLeading: false,
-      title: Row(
+    double customHeight = isMobile ? 38.0 : 45.0;
+
+    return Container(
+      height: customHeight,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Image.asset('assets/images/logoBlack.png', height: 25),
-          if (!isMobile) const SizedBox(width: 40),
-          if (!isMobile)
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF4F5F7),
-                borderRadius: BorderRadius.circular(30),
+          Image.asset(
+            'assets/images/logoBlack.png',
+            height: isMobile ? 16 : 20,
+          ),
+
+          if (!isMobile) ...[
+            const SizedBox(width: 32),
+            _buildDesktopNav(context),
+          ],
+
+          const Spacer(),
+
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (isMobile) _buildMobileMenu(context),
+
+              if (isMobile) const SizedBox(width: 8),
+
+              _outletChip(context, authProv, isMobile),
+
+              _miniActionButton(
+                icon: Icons.settings_outlined,
+                size: isMobile ? 18 : 20,
+                onTap: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => const PrinterModal(),
+                  );
+                },
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _navItem(
-                    context,
-                    "Dashboard",
-                    Icons.grid_view_rounded,
-                    activeMenu == "Dashboard",
-                    AppRoutes.dashboard,
-                  ),
-                  _navItem(
-                    context,
-                    "Transaksi",
-                    Icons.swap_horiz,
-                    activeMenu == "Transaksi",
-                    AppRoutes.transaksi,
-                  ),
-                  _navItem(
-                    context,
-                    "Stok",
-                    Icons.inventory_2_outlined,
-                    activeMenu == "Stok",
-                    AppRoutes.stok,
-                  ),
-                  _navItem(
-                    context,
-                    "Riwayat",
-                    Icons.history,
-                    activeMenu == "Riwayat",
-                    AppRoutes.riwayat_transaksi,
-                  ),
-                ],
+
+              if (shiftProv.isShiftActive) _shiftBadge(isMobile),
+
+              _userChip(isMobile, user),
+
+              _miniActionButton(
+                icon: Icons.logout,
+                color: Colors.red.shade600,
+                size: isMobile ? 18 : 20,
+                onTap: () async {
+                  await context.read<AuthProvider>().signOut();
+                  if (context.mounted) {
+                    Navigator.pushReplacementNamed(context, AppRoutes.login);
+                  }
+                },
               ),
-            ),
+            ],
+          ),
         ],
       ),
-      actions: [
-        if (isMobile) _buildMobileMenu(context),
+    );
+  }
 
-        _outletChip(context, authProv, isMobile),
+  Widget _miniActionButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    double size = 18,
+    Color? color,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Icon(icon, size: size, color: color ?? Colors.grey.shade700),
+        ),
+      ),
+    );
+  }
 
-        IconButton(
-          onPressed: () {
-            showDialog(
-              context: context,
-              builder: (context) => const PrinterModal(),
-            );
-          },
-          icon: Icon(
-            Icons.settings_outlined,
-            color: Colors.grey.shade700,
-            size: 22,
+  Widget _buildDesktopNav(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F5F7),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _navItem(
+            context,
+            "Dashboard",
+            Icons.grid_view_rounded,
+            activeMenu == "Dashboard",
+            AppRoutes.dashboard,
           ),
-        ),
-
-        if (shiftProv.isShiftActive) _shiftBadge(isMobile),
-        _userChip(isMobile, user),
-        const SizedBox(width: 10),
-        IconButton(
-          onPressed: () async {
-            await context.read<AuthProvider>().signOut();
-            if (context.mounted) {
-              Navigator.pushReplacementNamed(context, AppRoutes.login);
-            }
-          },
-          icon: const Icon(Icons.logout, color: Colors.red, size: 20),
-        ),
-        const SizedBox(width: 10),
-      ],
+          _navItem(
+            context,
+            "Transaksi",
+            Icons.swap_horiz,
+            activeMenu == "Transaksi",
+            AppRoutes.transaksi,
+          ),
+          _navItem(
+            context,
+            "Stok",
+            Icons.inventory_2_outlined,
+            activeMenu == "Stok",
+            AppRoutes.stok,
+          ),
+          _navItem(
+            context,
+            "Riwayat",
+            Icons.history,
+            activeMenu == "Riwayat",
+            AppRoutes.riwayat_transaksi,
+          ),
+        ],
+      ),
     );
   }
 
@@ -116,39 +167,36 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     bool active,
     String route,
   ) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => Navigator.pushReplacementNamed(context, route),
-        borderRadius: BorderRadius.circular(24),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: active ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: active ? Colors.blue.shade600 : Colors.transparent,
-              width: 1.5,
+    return InkWell(
+      onTap: () => Navigator.pushReplacementNamed(context, route),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow:
+              active
+                  ? [const BoxShadow(color: Colors.black12, blurRadius: 1)]
+                  : [],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 14,
+              color: active ? Colors.blue.shade700 : Colors.grey.shade600,
             ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 18,
+            const SizedBox(width: 4),
+            Text(
+              title,
+              style: TextStyle(
                 color: active ? Colors.black87 : Colors.grey.shade600,
+                fontSize: 12,
+                fontWeight: active ? FontWeight.bold : FontWeight.normal,
               ),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: TextStyle(
-                  color: active ? Colors.black87 : Colors.grey.shade600,
-                  fontSize: 13,
-                  fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -156,16 +204,18 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   Widget _userChip(bool isMobile, dynamic user) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 6 : 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.person_pin, size: 18, color: Colors.blue),
+          Icon(Icons.person_pin, size: isMobile ? 16 : 18, color: Colors.blue),
           if (!isMobile) ...[
-            const SizedBox(width: 5),
+            const SizedBox(width: 4),
             Text(
               user?.name ?? "User",
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
@@ -182,21 +232,19 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   Widget _shiftBadge(bool isMobile) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 18, horizontal: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 8 : 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.blue.shade100),
       ),
-      child: Center(
-        child: Text(
-          isMobile ? "Aktif" : "Shift Aktif",
-          style: const TextStyle(
-            color: Colors.blue,
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-          ),
+      child: Text(
+        isMobile ? "Aktif" : "Shift Aktif",
+        style: TextStyle(
+          color: Colors.blue,
+          fontSize: isMobile ? 10 : 11,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
@@ -207,36 +255,35 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     AuthProvider authProv,
     bool isMobile,
   ) {
-    final outletId = authProv.outletId;
+    if (authProv.outletId != null) return const SizedBox.shrink();
 
-    if (outletId != null) {
-      return const SizedBox.shrink();
-    }
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => const OutletSelectionDialog(),
-          );
-        },
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.orange.shade50,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.orange.shade200),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.store, size: 16, color: Colors.orange),
-              const SizedBox(width: 6),
-              Text(
+    return InkWell(
+      onTap: () {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const OutletSelectionDialog(),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 8 : 10,
+          vertical: 4,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.store, size: isMobile ? 14 : 16, color: Colors.orange),
+            if (!isMobile) ...[
+              const SizedBox(width: 4),
+              const Text(
                 "Pilih Outlet",
                 style: TextStyle(
                   fontSize: 11,
@@ -244,14 +291,8 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                   color: Colors.orange,
                 ),
               ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.warning_amber_rounded,
-                size: 14,
-                color: Colors.orange.shade700,
-              ),
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -259,7 +300,10 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   Widget _buildMobileMenu(BuildContext context) {
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.menu, color: Colors.black87),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(),
+      icon: const Icon(Icons.menu, color: Colors.black87, size: 20),
+      offset: const Offset(0, 38),
       onSelected: (route) => Navigator.pushReplacementNamed(context, route),
       itemBuilder:
           (context) => [
@@ -286,11 +330,12 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   ) {
     return PopupMenuItem(
       value: route,
+      height: 40,
       child: Row(
         children: [
-          Icon(icon, size: 18),
+          Icon(icon, size: 18, color: Colors.blue.shade700),
           const SizedBox(width: 10),
-          Text(title),
+          Text(title, style: const TextStyle(fontSize: 13)),
         ],
       ),
     );
