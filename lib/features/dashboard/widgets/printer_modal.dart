@@ -1,6 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class PrinterModal extends StatefulWidget {
   const PrinterModal({super.key});
@@ -12,13 +13,30 @@ class PrinterModal extends StatefulWidget {
 class _PrinterModalState extends State<PrinterModal> {
   List<ScanResult> _scanResults = [];
   bool _isScanning = false;
+  String? _lastConnectedId;
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   StreamSubscription<bool>? _isScanningSubscription;
 
   @override
   void initState() {
     super.initState();
+    _loadLastDevice();
     _startScan();
+  }
+
+  Future<void> _loadLastDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _lastConnectedId = prefs.getString('last_printer_id');
+    });
+  }
+
+  Future<void> _saveLastDevice(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('last_printer_id', id);
+    setState(() {
+      _lastConnectedId = id;
+    });
   }
 
   void _startScan() async {
@@ -75,6 +93,8 @@ class _PrinterModalState extends State<PrinterModal> {
 
       await device.discoverServices();
 
+      await _saveLastDevice(device.remoteId.toString());
+
       if (mounted) {
         Navigator.pop(context);
         Navigator.pop(context);
@@ -117,7 +137,7 @@ class _PrinterModalState extends State<PrinterModal> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  "Pilih Printer POS 58",
+                  "Pilih Printer",
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 _isScanning
@@ -134,7 +154,7 @@ class _PrinterModalState extends State<PrinterModal> {
             ),
             const Divider(),
             ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 300),
+              constraints: const BoxConstraints(maxHeight: 350),
               child:
                   _scanResults.isEmpty
                       ? Center(
@@ -153,6 +173,10 @@ class _PrinterModalState extends State<PrinterModal> {
                         itemBuilder: (context, index) {
                           final result = _scanResults[index];
                           final device = result.device;
+                          final String deviceId = device.remoteId.toString();
+                          final bool isLastConnected =
+                              deviceId == _lastConnectedId;
+
                           final String displayName =
                               device.platformName.isNotEmpty
                                   ? device.platformName
@@ -161,15 +185,45 @@ class _PrinterModalState extends State<PrinterModal> {
                                       : "Unknown Device");
 
                           return ListTile(
-                            leading: const Icon(
+                            leading: Icon(
                               Icons.print,
-                              color: Colors.blueGrey,
+                              color:
+                                  isLastConnected
+                                      ? Colors.blue
+                                      : Colors.blueGrey,
                             ),
-                            title: Text(displayName),
-                            subtitle: Text(device.remoteId.toString()),
-                            trailing: const Icon(
+                            title: Row(
+                              children: [
+                                Expanded(child: Text(displayName)),
+                                if (isLastConnected)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: Colors.blue.shade200,
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      "Terakhir",
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            subtitle: Text(deviceId),
+                            trailing: Icon(
                               Icons.link,
-                              color: Colors.blue,
+                              color:
+                                  isLastConnected ? Colors.blue : Colors.grey,
                             ),
                             onTap: () => _connectToDevice(device),
                           );
