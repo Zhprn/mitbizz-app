@@ -413,10 +413,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
                           ),
                           SizedBox(height: isCompact ? 4 : 12),
                           Container(
-                            height:
-                                isCompact
-                                    ? 180
-                                    : 480, // Ditambah dari 140 agar tidak flat
+                            height: isCompact ? 180 : 480,
                             decoration: BoxDecoration(
                               border: Border.all(color: Colors.grey.shade200),
                               borderRadius: BorderRadius.circular(
@@ -1225,29 +1222,90 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
   List<dynamic> _products = [];
   String _search = "";
   bool _isLoading = true;
+
+  final ScrollController _scrollController = ScrollController();
+  int _currentPage = 1;
+  int _totalPages = 1;
+  bool _isFetchingMore = false;
+
   @override
   void initState() {
     super.initState();
     _fetchProducts();
+
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >=
+          _scrollController.position.maxScrollExtent - 200) {
+        if (!_isFetchingMore && !_isLoading && _currentPage < _totalPages) {
+          _fetchNextPage();
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchProducts() async {
-    setState(() => _isLoading = true);
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _currentPage = 1;
+    });
+
     final authProv = context.read<AuthProvider>();
     try {
       final res = await authProv.authenticatedGet(
-        '/api/products?search=$_search',
+        '/api/products?search=$_search&page=$_currentPage&limit=10',
       );
+
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
-        setState(() {
-          _products = data['data']?['data'] ?? [];
-          _isLoading = false;
-        });
-      } else
-        setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() {
+            _products = data['data']?['data'] ?? [];
+            _totalPages = data['data']?['meta']?['totalPages'] ?? 1;
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _fetchNextPage() async {
+    if (_isFetchingMore) return;
+
+    setState(() => _isFetchingMore = true);
+    _currentPage++;
+
+    final authProv = context.read<AuthProvider>();
+    try {
+      final res = await authProv.authenticatedGet(
+        '/api/products?search=$_search&page=$_currentPage&limit=10',
+      );
+
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        final List newItems = data['data']?['data'] ?? [];
+
+        if (mounted) {
+          setState(() {
+            _products.addAll(newItems);
+            _isFetchingMore = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isFetchingMore = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isFetchingMore = false);
     }
   }
 
@@ -1314,11 +1372,22 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                         ),
                       )
                       : ListView.separated(
-                        itemCount: _products.length,
+                        controller: _scrollController,
+                        itemCount: _products.length + (_isFetchingMore ? 1 : 0),
                         separatorBuilder:
                             (_, __) =>
                                 const Divider(height: 1, color: Colors.black12),
                         itemBuilder: (context, i) {
+                          if (i == _products.length) {
+                            return const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            );
+                          }
                           final p = _products[i];
                           double hargaJual =
                               double.tryParse(
