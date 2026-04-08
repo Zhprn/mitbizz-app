@@ -14,6 +14,7 @@ class CheckoutModal extends StatefulWidget {
   final int pajak;
   final int total;
   final VoidCallback onSuccess;
+  final VoidCallback onCartChanged;
 
   const CheckoutModal({
     super.key,
@@ -23,6 +24,7 @@ class CheckoutModal extends StatefulWidget {
     required this.pajak,
     required this.total,
     required this.onSuccess,
+    required this.onCartChanged,
   });
 
   @override
@@ -53,7 +55,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
     return (widget.subTotal * (rate / 100)).toInt();
   }
 
-  int get _finalTotalAfterPromo => widget.total - _promoDiscountAmount;
+  int get _finalTotalAfterPromo => _localTotal - _promoDiscountAmount;
   int _localSubTotal = 0;
   int _localTotal = 0;
   int _localPajak = 0;
@@ -95,6 +97,27 @@ class _CheckoutModalState extends State<CheckoutModal> {
     setState(() {
       _kembalian = bayar - _finalTotalAfterPromo;
     });
+  }
+
+  void _recalculateTotals() {
+    int newSubTotal = 0;
+    for (var item in widget.cartItems) {
+      int price =
+          item['price'] is int
+              ? item['price']
+              : int.parse(item['price'].toString());
+      int qty =
+          item['qty'] is int ? item['qty'] : int.parse(item['qty'].toString());
+      newSubTotal += (price * qty);
+    }
+
+    setState(() {
+      _localSubTotal = newSubTotal;
+      _localTotal = _localSubTotal + _localPajak - _localDiskon;
+    });
+
+    _calculateChange();
+    widget.onCartChanged();
   }
 
   void _showDiscountSelectorDialog() {
@@ -267,9 +290,9 @@ class _CheckoutModalState extends State<CheckoutModal> {
       "tenantId": authProv.tenantId,
       "outletId": authProv.outletId,
       "status": "complete",
-      "subtotal": widget.subTotal.toString(),
-      "jumlahPajak": widget.pajak.toString(),
-      "jumlahDiskon": (widget.diskon + _promoDiscountAmount).toString(),
+      "subtotal": _localSubTotal.toString(),
+      "jumlahPajak": _localPajak.toString(),
+      "jumlahDiskon": (_localDiskon + _promoDiscountAmount).toString(),
       "diskonBreakdown": [],
       "paymentMethodId": selectedPaymentMethodId,
       "total": _finalTotalAfterPromo.toString(),
@@ -468,7 +491,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                       children: [
                         _summaryRowItem(
                           "Subtotal",
-                          widget.subTotal,
+                          _localSubTotal,
                           isMobile: isMobile,
                         ),
                         _summaryRowItem(
@@ -587,7 +610,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                                       index,
                                                     );
                                                   }
-                                                  _calculateChange();
+                                                  _recalculateTotals();
                                                 }),
                                           ),
                                           Padding(
@@ -608,7 +631,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                             onTap:
                                                 () => setState(() {
                                                   item['qty']++;
-                                                  _calculateChange();
+                                                  _recalculateTotals();
                                                 }),
                                           ),
                                         ],
@@ -626,7 +649,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                                       onPressed:
                                           () => setState(() {
                                             widget.cartItems.removeAt(index);
-                                            _calculateChange();
+                                            _recalculateTotals();
                                           }),
                                     ),
                                   ],

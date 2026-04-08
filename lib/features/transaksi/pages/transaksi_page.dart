@@ -279,8 +279,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
               });
               _fetchData(page: currentPage);
             },
+            onCartChanged: () {
+              setState(() {});
+            },
           ),
-    );
+    ).then((_) {
+      setState(() {});
+    });
   }
 
   @override
