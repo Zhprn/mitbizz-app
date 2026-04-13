@@ -36,7 +36,7 @@ class _InvoiceModalState extends State<InvoiceModal> {
     if (dateStr == null || dateStr.isEmpty) return '-';
     try {
       DateTime dt = DateTime.parse(dateStr).toLocal();
-      return DateFormat("d MMMM yyyy 'Pukul' HH.mm", 'id_ID').format(dt);
+      return DateFormat('d MMM yyyy, HH:mm', 'id_ID').format(dt);
     } catch (e) {
       return dateStr;
     }
@@ -64,9 +64,7 @@ class _InvoiceModalState extends State<InvoiceModal> {
 
     final String invoiceNo =
         orderData['orderNumber'] ?? orderData['invoiceNumber'] ?? '-';
-    final String date = _formatDate(
-      orderData['completedAt'] ?? orderData['createdAt'],
-    );
+    final String date = _formatDate(orderData['createdAt']);
 
     final String receiptFooter =
         tenantSettings['receiptFooter'] ?? "Terima kasih atas kunjungan Anda!";
