@@ -13,6 +13,7 @@ class CheckoutModal extends StatefulWidget {
   final int diskon;
   final int pajak;
   final int total;
+  final bool enableOrderTipe;
   final VoidCallback onSuccess;
   final VoidCallback onCartChanged;
 
@@ -25,6 +26,7 @@ class CheckoutModal extends StatefulWidget {
     required this.total,
     required this.onSuccess,
     required this.onCartChanged,
+    required this.enableOrderTipe,
   });
 
   @override
@@ -286,6 +288,11 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
     String tipeOrder = _orderType == "Take Away" ? "take_away" : "dine_in";
 
+    String finalNotes =
+        widget.enableOrderTipe
+            ? "[$_orderType] ${_notesController.text}".trim()
+            : _notesController.text.trim();
+
     final body = {
       "tenantId": authProv.tenantId,
       "outletId": authProv.outletId,
@@ -296,11 +303,11 @@ class _CheckoutModalState extends State<CheckoutModal> {
       "diskonBreakdown": [],
       "paymentMethodId": selectedPaymentMethodId,
       "total": _finalTotalAfterPromo.toString(),
-      "notes": "[$_orderType] ${_notesController.text}".trim(),
+      "notes": finalNotes,
       "nomorAntrian": _antrianController.text.trim(),
       "completedAt": DateTime.now().toIso8601String(),
       "nama": _finalCustomerName,
-      "tipe": tipeOrder,
+      if (widget.enableOrderTipe) "tipe": tipeOrder,
       "bayar": bayarValue.toString(),
       "kembali": _kembalian.toString(),
       "items":
@@ -359,10 +366,15 @@ class _CheckoutModalState extends State<CheckoutModal> {
     setState(() => _isSubmitting = true);
     final authProv = context.read<AuthProvider>();
 
+    String finalNotes =
+        widget.enableOrderTipe
+            ? "[$_orderType] ${_notesController.text}".trim()
+            : _notesController.text.trim();
+
     final body = {
       "tenantId": authProv.tenantId,
       "outletId": authProv.outletId,
-      "notes": "[$_orderType] ${_notesController.text}",
+      "notes": finalNotes,
       "nomorAntrian": _antrianController.text.trim(),
       "items":
           widget.cartItems
@@ -478,8 +490,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildOrderTypeSelector(isMobile),
-                  SizedBox(height: isMobile ? 6 : 20),
+                  if (widget.enableOrderTipe) ...[
+                    _buildOrderTypeSelector(isMobile),
+                    SizedBox(height: isMobile ? 6 : 20),
+                  ],
                   Container(
                     padding: EdgeInsets.all(isMobile ? 4 : 20),
                     decoration: BoxDecoration(

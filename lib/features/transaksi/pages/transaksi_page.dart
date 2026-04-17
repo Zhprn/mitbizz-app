@@ -30,6 +30,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
   int totalPages = 1;
 
   double _taxRate = 0.0;
+  bool _enableOrderTipe = false;
 
   @override
   void initState() {
@@ -62,12 +63,14 @@ class _TransaksiPageState extends State<TransaksiPage> {
       if (response.statusCode == 200) {
         final jsonRes = json.decode(response.body);
         if (jsonRes['data'] != null && jsonRes['data']['settings'] != null) {
+          final settings = jsonRes['data']['settings'];
           setState(() {
             _taxRate =
                 double.tryParse(
                   jsonRes['data']['settings']['taxRate'].toString(),
                 ) ??
                 0.0;
+            _enableOrderTipe = settings['enableOrderTipe'] == true;
           });
         }
       }
@@ -273,6 +276,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
             diskon: diskonAmount,
             pajak: pajak,
             total: total,
+            enableOrderTipe: _enableOrderTipe,
             onSuccess: () {
               setState(() {
                 cartItems.clear();
