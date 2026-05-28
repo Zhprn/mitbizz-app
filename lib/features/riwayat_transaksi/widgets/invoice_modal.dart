@@ -502,10 +502,34 @@ class _InvoiceModalState extends State<InvoiceModal> {
         );
       }
 
+      Map<String, dynamic> manipulatedOutletData = Map<String, dynamic>.from(
+        outletData,
+      );
+
+      if (manipulatedOutletData['tenant'] == null) {
+        manipulatedOutletData['tenant'] = {};
+      } else {
+        manipulatedOutletData['tenant'] = Map<String, dynamic>.from(
+          manipulatedOutletData['tenant'],
+        );
+      }
+
+      if (manipulatedOutletData['tenant']['settings'] == null) {
+        manipulatedOutletData['tenant']['settings'] = {};
+      } else {
+        manipulatedOutletData['tenant']['settings'] = Map<String, dynamic>.from(
+          manipulatedOutletData['tenant']['settings'],
+        );
+      }
+
+      manipulatedOutletData['tenant']['settings']['receiptFooter'] =
+          widget.tenantSettings['receiptFooter'] ??
+          "Terima kasih atas kunjungan Anda!";
+
       await PrintService.printInvoice(
         device: connected.first,
         orderData: orderData,
-        outletData: outletData,
+        outletData: manipulatedOutletData,
         orderItems: orderItems,
         logoPath: logoPath,
       );

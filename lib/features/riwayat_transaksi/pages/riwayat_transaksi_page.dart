@@ -186,13 +186,67 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
         final outletData = outletJson['data'] ?? {};
 
         final Map<String, dynamic> itemsJson = json.decode(itemsResponse.body);
-        List<dynamic> orderItems = [];
+        List<dynamic> rawOrderItems = [];
         if (itemsJson['data'] is List) {
-          orderItems = itemsJson['data'];
+          rawOrderItems = itemsJson['data'];
         } else if (itemsJson['data'] != null &&
             itemsJson['data']['data'] is List) {
-          orderItems = itemsJson['data']['data'];
+          rawOrderItems = itemsJson['data']['data'];
         }
+
+        List<dynamic> orderItems =
+            rawOrderItems.map((item) {
+              Map<String, dynamic> mappedItem = Map<String, dynamic>.from(item);
+
+              if (mappedItem['product'] == null &&
+                  mappedItem['productName'] != null) {
+                mappedItem['nama'] = mappedItem['productName'];
+              }
+
+              if (mappedItem['quantity'] == null) {
+                mappedItem['quantity'] = mappedItem['qty'] ?? 1;
+              }
+
+              if (mappedItem['hargaSatuan'] == null) {
+                mappedItem['hargaSatuan'] = mappedItem['price'] ?? 0;
+              }
+
+              if (mappedItem['total'] == null) {
+                final int q =
+                    int.tryParse(mappedItem['quantity'].toString()) ?? 1;
+                final double p =
+                    double.tryParse(mappedItem['hargaSatuan'].toString()) ?? 0;
+                mappedItem['total'] = mappedItem['subtotal'] ?? (q * p);
+              }
+              return mappedItem;
+            }).toList();
+
+        Map<String, dynamic> structuredOrderData = {
+          ...orderData,
+          'subtotal': orderData['subtotal'] ?? 0,
+          'jumlahDiskon':
+              orderData['jumlahDiskon'] ?? orderData['discount'] ?? 0,
+          'jumlahPajak': orderData['jumlahPajak'] ?? orderData['tax'] ?? 0,
+          'total': orderData['total'] ?? 0,
+          'bayar':
+              orderData['bayar'] ??
+              orderData['tunai'] ??
+              orderData['total'] ??
+              0,
+          'kembali': orderData['kembali'] ?? orderData['kembalian'] ?? 0,
+
+          'customerName':
+              orderData['nama'] ?? orderData['customerName'] ?? 'Guest',
+          'cashierName':
+              orderData['cashier'] is Map
+                  ? (orderData['cashier']['name'] ??
+                      orderData['cashier']['nama'] ??
+                      '-')
+                  : (orderData['cashierName'] ?? orderData['namaKasir'] ?? '-'),
+          'orderNumber':
+              orderData['orderNumber'] ?? orderData['invoiceNumber'] ?? '-',
+          'nomorAntrian': orderData['nomorAntrian'] ?? '-',
+        };
 
         Map<String, dynamic> tenantSettings = {};
         if (tenantResponse.statusCode == 200) {
@@ -207,7 +261,7 @@ class _RiwayatTransaksiPageState extends State<RiwayatTransaksiPage> {
             context: context,
             builder:
                 (context) => InvoiceModal(
-                  orderData: orderData,
+                  orderData: structuredOrderData,
                   outletData: outletData,
                   orderItems: orderItems,
                   tenantSettings: tenantSettings,
