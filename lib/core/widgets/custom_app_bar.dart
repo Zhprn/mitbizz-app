@@ -18,8 +18,8 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
         PlatformDispatcher.instance.views.first.devicePixelRatio;
 
     if (screenWidth >= 1000) return const Size.fromHeight(55.0);
-    if (screenWidth < 800) return const Size.fromHeight(38.0);
-    return Size.fromHeight(45.0);
+    if (screenWidth < 800) return const Size.fromHeight(48.0);
+    return Size.fromHeight(52.0);
   }
 
   @override
@@ -36,75 +36,82 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     if (isLargeScreen) {
       customHeight = 55.0;
     } else if (isMobile) {
-      customHeight = 38.0;
+      customHeight = 48.0;
     } else {
-      customHeight = 45.0;
+      customHeight = 52.0;
     }
 
-    return Container(
-      height: customHeight,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Colors.grey.shade200, width: 1),
+    return SafeArea(
+      top: true,
+      bottom: false,
+      left: false,
+      right: false,
+      child: Container(
+        height: customHeight,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(
+            bottom: BorderSide(color: Colors.grey.shade200, width: 1),
+          ),
         ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Image.asset(
-            'assets/images/logoBlack.png',
-            height: isLargeScreen ? 26 : (isMobile ? 16 : 20),
-          ),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Image.asset(
+              'assets/images/logoBlack.png',
+              height: isLargeScreen ? 26 : (isMobile ? 16 : 20),
+            ),
 
-          if (!isMobile) ...[
-            const SizedBox(width: 32),
-            _buildDesktopNav(context, isLargeScreen),
-          ],
-
-          const Spacer(),
-
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (isMobile) _buildMobileMenu(context),
-
-              if (isMobile) const SizedBox(width: 8),
-
-              _outletChip(context, authProv, isMobile, isLargeScreen),
-
-              _miniActionButton(
-                icon: Icons.settings_outlined,
-                size: isLargeScreen ? 24 : (isMobile ? 18 : 20),
-                onTap: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => const PrinterModal(),
-                  );
-                },
-              ),
-
-              if (shiftProv.isShiftActive) _shiftBadge(isMobile, isLargeScreen),
-
-              _userChip(isMobile, isLargeScreen, user),
-
-              _miniActionButton(
-                icon: Icons.logout,
-                color: Colors.red.shade600,
-                size: isLargeScreen ? 24 : (isMobile ? 18 : 20),
-                onTap: () async {
-                  await context.read<AuthProvider>().signOut();
-                  if (context.mounted) {
-                    Navigator.pushReplacementNamed(context, AppRoutes.login);
-                  }
-                },
-              ),
+            if (!isMobile) ...[
+              const SizedBox(width: 32),
+              _buildDesktopNav(context, isLargeScreen),
             ],
-          ),
-        ],
+
+            const Spacer(),
+
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (isMobile) _buildMobileMenu(context),
+
+                if (isMobile) const SizedBox(width: 8),
+
+                _outletChip(context, authProv, isMobile, isLargeScreen),
+
+                _miniActionButton(
+                  icon: Icons.settings_outlined,
+                  size: isLargeScreen ? 24 : (isMobile ? 18 : 20),
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => const PrinterModal(),
+                    );
+                  },
+                ),
+
+                if (shiftProv.isShiftActive)
+                  _shiftBadge(isMobile, isLargeScreen),
+
+                _userChip(isMobile, isLargeScreen, user),
+
+                _miniActionButton(
+                  icon: Icons.logout,
+                  color: Colors.red.shade600,
+                  size: isLargeScreen ? 24 : (isMobile ? 18 : 20),
+                  onTap: () async {
+                    await context.read<AuthProvider>().signOut();
+                    if (context.mounted) {
+                      Navigator.pushReplacementNamed(context, AppRoutes.login);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
