@@ -198,13 +198,9 @@ class PrintService {
       ]);
 
       bytes += generator.feed(1);
-
-      String footerText = "Terima Kasih";
-      if (outletData['tenant'] != null &&
-          outletData['tenant']['settings'] != null &&
-          outletData['tenant']['settings']['receiptFooter'] != null) {
-        footerText = outletData['tenant']['settings']['receiptFooter'];
-      }
+      String footerText =
+          outletData['tenant']?['settings']?['receiptFooter']?.toString() ??
+          "Terima Kasih";
 
       bytes += generator.text(
         footerText,
