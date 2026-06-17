@@ -86,6 +86,8 @@ class _PrinterModalState extends State<PrinterModal> {
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
+      await device.disconnect().catchError((e) => print(e));
+
       await device.connect(
         timeout: const Duration(seconds: 10),
         autoConnect: false,

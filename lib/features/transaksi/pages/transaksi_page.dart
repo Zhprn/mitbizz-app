@@ -30,6 +30,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
   int totalPages = 1;
 
   double _taxRate = 0.0;
+  String _receiptFooter = 'Terima Kasih';
   bool _enableOrderTipe = false;
 
   @override
@@ -66,10 +67,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
           final settings = jsonRes['data']['settings'];
           setState(() {
             _taxRate =
-                double.tryParse(
-                  jsonRes['data']['settings']['taxRate'].toString(),
-                ) ??
-                0.0;
+                double.tryParse(settings['taxRate']?.toString() ?? '0') ?? 0.0;
+            _receiptFooter =
+                settings['receiptFooter']?.toString() ?? 'Terima Kasih';
             _enableOrderTipe = settings['enableOrderTipe'] == true;
           });
         }
@@ -277,6 +277,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
             pajak: pajak,
             total: total,
             enableOrderTipe: _enableOrderTipe,
+            tenantSettings: {'receiptFooter': _receiptFooter},
             onSuccess: () {
               setState(() {
                 cartItems.clear();
@@ -296,7 +297,16 @@ class _TransaksiPageState extends State<TransaksiPage> {
   Widget build(BuildContext context) {
     final isShiftActive = context.watch<ShiftProvider>().isShiftActive;
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 1000;
+    bool isMobile = screenWidth < 1200;
+
+    int gridCrossAxisCount;
+    if (screenWidth < 500) {
+      gridCrossAxisCount = 2;
+    } else if (screenWidth < 800) {
+      gridCrossAxisCount = 3;
+    } else {
+      gridCrossAxisCount = 4;
+    }
 
     Widget mainContent = Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -315,15 +325,12 @@ class _TransaksiPageState extends State<TransaksiPage> {
                 ),
               ),
             ),
-
           _buildHeaderSejajar(isMobile),
           const SizedBox(height: 12),
-
           if (!isMobile && categories.isNotEmpty) ...[
             _buildCategoryFilter(),
             const SizedBox(height: 12),
           ],
-
           Expanded(
             child:
                 _isLoading
@@ -331,11 +338,10 @@ class _TransaksiPageState extends State<TransaksiPage> {
                     : GridView.builder(
                       padding: const EdgeInsets.only(bottom: 10),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount:
-                            isMobile ? 4 : (screenWidth < 1100 ? 3 : 4),
-                        crossAxisSpacing: 7,
-                        mainAxisSpacing: 8,
-                        childAspectRatio: isMobile ? 0.95 : 0.85,
+                        crossAxisCount: gridCrossAxisCount,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: 0.82,
                       ),
                       itemCount: products.length,
                       itemBuilder:
@@ -343,7 +349,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
                               _buildProductCard(products[index]),
                     ),
           ),
-
           if (!isMobile) _buildPagination(),
         ],
       ),
@@ -381,14 +386,14 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildFooterMobile(bool isShiftActive) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, -2),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -5),
           ),
         ],
       ),
@@ -405,7 +410,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   Text(
                     "Total (${cartItems.length})",
                     style: const TextStyle(
-                      fontSize: 10,
+                      fontSize: 12,
                       color: Colors.grey,
                       fontWeight: FontWeight.bold,
                     ),
@@ -413,14 +418,13 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   Text(
                     "Rp ${_formatRupiah(total)}",
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
               ),
             ),
-
             if (totalPages > 1)
               Expanded(
                 flex: 4,
@@ -438,15 +442,15 @@ class _TransaksiPageState extends State<TransaksiPage> {
                             currentPage > 1
                                 ? Colors.blue
                                 : Colors.grey.shade300,
-                        size: 22,
+                        size: 26,
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: Text(
                         "$currentPage / $totalPages",
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 13,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -462,16 +466,15 @@ class _TransaksiPageState extends State<TransaksiPage> {
                             currentPage < totalPages
                                 ? Colors.blue
                                 : Colors.grey.shade300,
-                        size: 22,
+                        size: 26,
                       ),
                     ),
                   ],
                 ),
               ),
-
             SizedBox(
-              width: 100,
-              height: 38,
+              width: 130,
+              height: 44,
               child: ElevatedButton(
                 onPressed: () {
                   if (!isShiftActive) {
@@ -489,10 +492,10 @@ class _TransaksiPageState extends State<TransaksiPage> {
                   elevation: 0,
                 ),
                 child: const Text(
-                  "BAYAR",
+                  "DETAIL",
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -518,7 +521,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildHeaderSejajar(bool isMobile) {
     return SizedBox(
-      height: isMobile ? 25 : 35,
+      height: isMobile ? 40 : 45,
       child: Row(
         children: [
           Expanded(flex: 3, child: _buildSearchField()),
@@ -532,9 +535,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   Widget _buildSearchField() {
-    bool isMobile = MediaQuery.of(context).size.width < 900;
+    bool isMobile = MediaQuery.of(context).size.width < 1200;
     return Container(
-      height: isMobile ? 35 : 45,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
@@ -552,17 +554,17 @@ class _TransaksiPageState extends State<TransaksiPage> {
             _fetchData(page: 1);
           });
         },
-        style: TextStyle(fontSize: isMobile ? 9 : 12),
+        style: TextStyle(fontSize: isMobile ? 13 : 14),
         decoration: InputDecoration(
           hintText: "Cari Produk...",
           prefixIcon: Icon(
             Icons.search,
-            size: isMobile ? 12 : 18,
+            size: isMobile ? 18 : 20,
             color: Colors.grey,
           ),
           border: InputBorder.none,
           isDense: true,
-          contentPadding: EdgeInsets.symmetric(vertical: isMobile ? 8 : 12),
+          contentPadding: EdgeInsets.symmetric(vertical: isMobile ? 10 : 12),
         ),
       ),
     );
@@ -570,7 +572,6 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildCategoryDropdown() {
     return Container(
-      height: 36,
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -581,8 +582,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
         child: DropdownButton<String>(
           value: selectedCategory,
           isExpanded: true,
-          icon: const Icon(Icons.arrow_drop_down, size: 20),
-          style: const TextStyle(fontSize: 9, color: Colors.black87),
+          icon: const Icon(Icons.arrow_drop_down, size: 24),
+          style: const TextStyle(fontSize: 13, color: Colors.black87),
           onChanged: (val) {
             if (val != null) {
               setState(() {
@@ -607,7 +608,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   Widget _buildCategoryTab(String name, int count) {
-    bool isMobile = MediaQuery.of(context).size.width < 900;
+    bool isMobile = MediaQuery.of(context).size.width < 1200;
     bool isActive = selectedCategory == name;
 
     return GestureDetector(
@@ -622,8 +623,8 @@ class _TransaksiPageState extends State<TransaksiPage> {
       child: Container(
         margin: const EdgeInsets.only(right: 8),
         padding: EdgeInsets.symmetric(
-          horizontal: isMobile ? 10 : 16,
-          vertical: isMobile ? 6 : 10,
+          horizontal: isMobile ? 12 : 16,
+          vertical: isMobile ? 8 : 10,
         ),
         decoration: BoxDecoration(
           color: isActive ? Colors.blue.withOpacity(0.1) : Colors.white,
@@ -668,7 +669,7 @@ class _TransaksiPageState extends State<TransaksiPage> {
 
   Widget _buildProductCard(Map<String, dynamic> product) {
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 900;
+    bool isMobile = screenWidth < 1200;
 
     bool isAvailable = product['isAvailable'] == true;
     bool tracking = product['enableStockTracking'] == true;
@@ -688,257 +689,128 @@ class _TransaksiPageState extends State<TransaksiPage> {
               width: 1,
             ),
           ),
-          child:
-              isMobile
-                  ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 5,
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF1F3F4),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(11),
+                    ),
+                  ),
+                  child: Stack(
                     children: [
-                      Expanded(
-                        flex: 5,
+                      Center(
+                        child: Icon(
+                          Icons.inventory_2_outlined,
+                          size: isMobile ? 36 : 48,
+                          color:
+                              isAvailable ? Colors.grey : Colors.red.shade200,
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        left: 8,
                         child: Container(
-                          width: double.infinity,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFF1F3F4),
-                            borderRadius: BorderRadius.vertical(
-                              top: Radius.circular(11),
-                            ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
                           ),
-                          child: Stack(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.9),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
                             children: [
-                              Center(
-                                child: Icon(
-                                  Icons.inventory_2_outlined,
-                                  size: 22,
+                              CircleAvatar(
+                                radius: 3,
+                                backgroundColor:
+                                    isAvailable ? Colors.green : Colors.red,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                isAvailable ? "Avail" : "Habis",
+                                style: TextStyle(
+                                  fontSize: isMobile ? 9 : 10,
+                                  fontWeight: FontWeight.bold,
                                   color:
                                       isAvailable
-                                          ? Colors.grey
-                                          : Colors.red.shade200,
-                                ),
-                              ),
-                              Positioned(
-                                top: 4,
-                                left: 4,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.9),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 2.5,
-                                        backgroundColor:
-                                            isAvailable
-                                                ? Colors.green
-                                                : Colors.red,
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        isAvailable ? "Avail" : "Habis",
-                                        style: TextStyle(
-                                          fontSize: 7,
-                                          fontWeight: FontWeight.bold,
-                                          color:
-                                              isAvailable
-                                                  ? Colors.green.shade700
-                                                  : Colors.red.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                          ? Colors.green.shade700
+                                          : Colors.red.shade700,
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: 6,
-                        child: Padding(
-                          padding: const EdgeInsets.all(6.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                product['name'],
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 9,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    product['kode'] ?? "SKU-0000",
-                                    style: TextStyle(
-                                      color: Colors.grey.shade400,
-                                      fontSize: 8,
-                                    ),
-                                  ),
-                                  Text(
-                                    tracking ? "Stok: $stock" : "Stok: ∞",
-                                    style: TextStyle(
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.w600,
-                                      color:
-                                          tracking && stock < 5
-                                              ? Colors.red
-                                              : Colors.grey.shade600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const Spacer(),
-                              Text(
-                                "Rp ${_formatRupiah(product['price'])}",
-                                style: const TextStyle(
-                                  color: Color(0xFF1976D2),
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                  : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Container(
-                          width: double.infinity,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFF1F3F4),
-                            borderRadius: BorderRadius.vertical(
-                              top: Radius.circular(11),
-                            ),
-                          ),
-                          child: Stack(
-                            children: [
-                              Center(
-                                child: Icon(
-                                  Icons.inventory_2_outlined,
-                                  size: 48,
-                                  color:
-                                      isAvailable
-                                          ? Colors.grey
-                                          : Colors.red.shade200,
-                                ),
-                              ),
-                              Positioned(
-                                top: 10,
-                                left: 10,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(6),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black12,
-                                        blurRadius: 2,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      CircleAvatar(
-                                        radius: 3.5,
-                                        backgroundColor:
-                                            isAvailable
-                                                ? Colors.green
-                                                : Colors.red,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        isAvailable
-                                            ? "Available"
-                                            : "Not Available",
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color:
-                                              isAvailable
-                                                  ? Colors.green.shade700
-                                                  : Colors.red.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              product['name'],
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  product['kode'] ?? '-',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade500,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                                Text(
-                                  tracking ? "Stok: $stock" : "Stok: ∞",
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color:
-                                        tracking && stock < 5
-                                            ? Colors.red
-                                            : Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              "Rp ${_formatRupiah(product['price'])}",
-                              style: const TextStyle(
-                                color: Color(0xFF1976D2),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                     ],
                   ),
+                ),
+              ),
+              Expanded(
+                flex: 5,
+                child: Padding(
+                  padding: EdgeInsets.all(isMobile ? 10.0 : 12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        product['name'],
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: isMobile ? 12 : 14,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                product['kode'] ?? "SKU-0000",
+                                style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: isMobile ? 10 : 11,
+                                ),
+                              ),
+                              Text(
+                                tracking ? "Stok: $stock" : "Stok: ∞",
+                                style: TextStyle(
+                                  fontSize: isMobile ? 10 : 11,
+                                  fontWeight: FontWeight.w600,
+                                  color:
+                                      tracking && stock < 5
+                                          ? Colors.red
+                                          : Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: isMobile ? 6 : 8),
+                          Text(
+                            "Rp ${_formatRupiah(product['price'])}",
+                            style: TextStyle(
+                              color: const Color(0xFF1976D2),
+                              fontWeight: FontWeight.bold,
+                              fontSize: isMobile ? 14 : 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1297,10 +1169,9 @@ class _TransaksiPageState extends State<TransaksiPage> {
   }
 
   Widget _buildCheckoutButton(bool isShiftActive) {
-    bool isMobile = MediaQuery.of(context).size.width < 900;
     return SizedBox(
       width: double.infinity,
-      height: isMobile ? 40 : 48,
+      height: 48,
       child: ElevatedButton(
         onPressed: () {
           if (!isShiftActive) {
@@ -1314,12 +1185,12 @@ class _TransaksiPageState extends State<TransaksiPage> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           elevation: 0,
         ),
-        child: Text(
-          "Proses Pembayaran",
+        child: const Text(
+          "BAYAR",
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
-            fontSize: isMobile ? 13 : 15,
+            fontSize: 15,
           ),
         ),
       ),

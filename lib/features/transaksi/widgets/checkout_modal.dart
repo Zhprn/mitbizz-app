@@ -16,6 +16,7 @@ class CheckoutModal extends StatefulWidget {
   final bool enableOrderTipe;
   final VoidCallback onSuccess;
   final VoidCallback onCartChanged;
+  final Map<String, dynamic> tenantSettings;
 
   const CheckoutModal({
     super.key,
@@ -27,6 +28,7 @@ class CheckoutModal extends StatefulWidget {
     required this.onSuccess,
     required this.onCartChanged,
     required this.enableOrderTipe,
+    this.tenantSettings = const {},
   });
 
   @override
@@ -43,7 +45,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
   String? selectedPaymentMethodId;
   final TextEditingController _bayarController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
-  final TextEditingController _antrianController = TextEditingController();
   final TextEditingController _customerNameController = TextEditingController();
 
   int _kembalian = 0;
@@ -51,6 +52,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
   int _finalJumlahBayar = 0;
   int _finalKembalian = 0;
   String _orderType = 'Dine In';
+
   int get _promoDiscountAmount {
     if (_selectedDiscount == null) return 0;
     double rate = double.tryParse(_selectedDiscount!['rate'].toString()) ?? 0;
@@ -87,7 +89,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
     _bayarController.removeListener(_calculateChange);
     _bayarController.dispose();
     _notesController.dispose();
-    _antrianController.dispose();
     _customerNameController.dispose();
     super.dispose();
   }
@@ -124,7 +125,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
   void _showDiscountSelectorDialog() {
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 1000;
+    bool isCompact = screenWidth < 1000;
 
     showDialog(
       context: context,
@@ -133,7 +134,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
             title: Text(
               "Pilih Diskon",
               style: TextStyle(
-                fontSize: isMobile ? 14 : 20,
+                fontSize: isCompact ? 16 : 20,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -141,14 +142,14 @@ class _CheckoutModalState extends State<CheckoutModal> {
               borderRadius: BorderRadius.circular(12),
             ),
             content: SizedBox(
-              width: isMobile ? 300 : 500,
+              width: isCompact ? 350 : 500,
               child:
                   _discounts.isEmpty
                       ? Center(
                         heightFactor: 2,
                         child: Text(
                           "Tidak ada diskon aktif",
-                          style: TextStyle(fontSize: isMobile ? 11 : 16),
+                          style: TextStyle(fontSize: isCompact ? 14 : 16),
                         ),
                       )
                       : ListView.builder(
@@ -160,18 +161,18 @@ class _CheckoutModalState extends State<CheckoutModal> {
                             leading: Icon(
                               Icons.local_offer,
                               color: Colors.orange,
-                              size: isMobile ? 18 : 28,
+                              size: isCompact ? 22 : 28,
                             ),
                             title: Text(
                               d['nama'] ?? 'Diskon',
                               style: TextStyle(
-                                fontSize: isMobile ? 12 : 16,
+                                fontSize: isCompact ? 14 : 16,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             subtitle: Text(
                               "Potongan ${d['rate']}%",
-                              style: TextStyle(fontSize: isMobile ? 10 : 14),
+                              style: TextStyle(fontSize: isCompact ? 12 : 14),
                             ),
                             onTap: () {
                               setState(() {
@@ -239,8 +240,9 @@ class _CheckoutModalState extends State<CheckoutModal> {
             rawData.where((d) {
               if (d['isActive'] != true) return false;
               if (d['level'] == 'tenant') return true;
-              if (d['level'] == 'outlet' && d['outletId'] == myOutletId)
+              if (d['level'] == 'outlet' && d['outletId'] == myOutletId) {
                 return true;
+              }
               return false;
             }).toList();
 
@@ -262,12 +264,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
   }
 
   Future<void> _processCheckout() async {
-    if (_antrianController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Nomor antrian wajib diisi!")),
-      );
-      return;
-    }
     final bayarValue =
         int.tryParse(_bayarController.text.replaceAll(RegExp(r'[^0-9]'), '')) ??
         0;
@@ -304,10 +300,9 @@ class _CheckoutModalState extends State<CheckoutModal> {
       "paymentMethodId": selectedPaymentMethodId,
       "total": _finalTotalAfterPromo.toString(),
       "notes": finalNotes,
-      "nomorAntrian": _antrianController.text.trim(),
       "completedAt": DateTime.now().toIso8601String(),
       "nama": _finalCustomerName,
-      if (widget.enableOrderTipe) "tipe": tipeOrder,
+      "tipe": tipeOrder,
       "bayar": bayarValue.toString(),
       "kembali": _kembalian.toString(),
       "items":
@@ -326,21 +321,32 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
     try {
       final res = await authProv.authenticatedPost('/api/orders', body);
-      if (res.statusCode == 201 || res.statusCode == 200) {
-        final responseData = json.decode(res.body)['data'];
-        final orderId = responseData['id'];
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        if (res.body.isNotEmpty) {
+          final responseData = json.decode(res.body)['data'];
+          final orderId = responseData['id'];
 
-        final resItems = await authProv.authenticatedGet(
-          '/api/order-items?orderId=$orderId',
-        );
-        if (resItems.statusCode == 200) {
-          final itemsData = json.decode(resItems.body)['data']['data'];
-          setState(() {
-            _orderData = responseData;
-            _fetchedOrderItems = itemsData ?? [];
-            _isFinished = true;
-          });
+          final resItems = await authProv.authenticatedGet(
+            '/api/order-items?orderId=$orderId',
+          );
+
+          if (resItems.body.isNotEmpty) {
+            final itemsData = json.decode(resItems.body)['data']['data'];
+
+            setState(() {
+              _orderData = responseData;
+              _fetchedOrderItems = itemsData ?? [];
+              _isFinished = true;
+            });
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Order berhasil tapi response kosong"),
+            ),
+          );
         }
+
         widget.onSuccess();
       } else {
         final error = json.decode(res.body);
@@ -356,13 +362,6 @@ class _CheckoutModalState extends State<CheckoutModal> {
   }
 
   Future<void> _processOpenBill() async {
-    if (_antrianController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Nomor antrian wajib diisi!")),
-      );
-      return;
-    }
-
     setState(() => _isSubmitting = true);
     final authProv = context.read<AuthProvider>();
 
@@ -371,11 +370,17 @@ class _CheckoutModalState extends State<CheckoutModal> {
             ? "[$_orderType] ${_notesController.text}".trim()
             : _notesController.text.trim();
 
+    _finalCustomerName =
+        _customerNameController.text.trim().isNotEmpty
+            ? _customerNameController.text.trim()
+            : 'Guest';
+
     final body = {
       "tenantId": authProv.tenantId,
       "outletId": authProv.outletId,
       "notes": finalNotes,
-      "nomorAntrian": _antrianController.text.trim(),
+      "nama": _finalCustomerName,
+      "nomorAntrian": "1",
       "items":
           widget.cartItems
               .map(
@@ -417,46 +422,435 @@ class _CheckoutModalState extends State<CheckoutModal> {
   @override
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
-    bool isMobile = screenWidth < 1000;
+    double screenHeight = MediaQuery.of(context).size.height;
+    bool isPortrait =
+        MediaQuery.of(context).orientation == Orientation.portrait;
+    bool isCompact = screenWidth < 1000;
+    bool isSmall = screenWidth < 700;
 
     double modalWidth;
-    if (screenWidth < 700) {
-      modalWidth = screenWidth * 0.98;
-    } else if (screenWidth < 1000) {
-      double ratio = (screenWidth - 700) / 300;
-      modalWidth = 650 - (ratio * 150);
+    if (_isFinished) {
+      modalWidth = isSmall ? screenWidth * 0.95 : 500;
     } else {
-      modalWidth = _isFinished ? 600 : 900;
+      if (isSmall || isPortrait) {
+        modalWidth = screenWidth * 0.95;
+      } else if (isCompact) {
+        modalWidth = screenWidth * 0.90;
+      } else {
+        modalWidth = 900;
+      }
     }
 
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       insetPadding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 4 : 40,
-        vertical: isMobile ? 8 : 24,
+        horizontal: isSmall ? 12 : 24,
+        vertical: 24,
       ),
       child: Container(
         width: modalWidth,
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.95,
-        ),
+        constraints: BoxConstraints(maxHeight: screenHeight * 0.90),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           child: SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.all(isMobile ? 8 : 32),
+            padding: EdgeInsets.all(isSmall ? 16 : 24),
             child:
                 _isFinished
-                    ? _buildInvoiceView(isMobile)
-                    : _buildCheckoutForm(isMobile),
+                    ? _buildInvoiceView()
+                    : _buildCheckoutForm(isCompact, isSmall, isPortrait),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildCheckoutForm(bool isMobile) {
+  Widget _buildCheckoutForm(bool isCompact, bool isSmall, bool isPortrait) {
+    Widget leftSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.enableOrderTipe) ...[
+          _buildOrderTypeSelector(isCompact),
+          SizedBox(height: isCompact ? 12 : 20),
+        ],
+        Container(
+          padding: EdgeInsets.all(isCompact ? 12 : 20),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            border: Border.all(color: Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(isCompact ? 8 : 12),
+          ),
+          child: Column(
+            children: [
+              _summaryRowItem("Subtotal", _localSubTotal, isCompact: isCompact),
+              _summaryRowItem(
+                "Diskon",
+                _promoDiscountAmount,
+                isNegative: true,
+                color: Colors.red,
+                isCompact: isCompact,
+              ),
+              _summaryRowItem("Pajak", widget.pajak, isCompact: isCompact),
+              Divider(height: isCompact ? 16 : 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Total Akhir",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: isCompact ? 14 : 18,
+                    ),
+                  ),
+                  Text(
+                    _formatCurrency(_finalTotalAfterPromo),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                      fontSize: isCompact ? 18 : 24,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: isCompact ? 16 : 20),
+        _buildLabel("Daftar Produk (${widget.cartItems.length})", isCompact),
+        SizedBox(height: isCompact ? 8 : 12),
+        Container(
+          constraints: BoxConstraints(maxHeight: isCompact ? 250 : 350),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(isCompact ? 8 : 12),
+          ),
+          child:
+              widget.cartItems.isEmpty
+                  ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        "Keranjang kosong",
+                        style: TextStyle(fontSize: isCompact ? 14 : 16),
+                      ),
+                    ),
+                  )
+                  : ListView.separated(
+                    shrinkWrap: true,
+                    physics: const ClampingScrollPhysics(),
+                    padding: EdgeInsets.all(isCompact ? 8 : 16),
+                    itemCount: widget.cartItems.length,
+                    separatorBuilder:
+                        (_, __) => Divider(height: isCompact ? 12 : 16),
+                    itemBuilder: (context, index) {
+                      final item = widget.cartItems[index];
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item['name'],
+                                  style: TextStyle(
+                                    fontSize: isCompact ? 14 : 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  _formatCurrency(item['price']),
+                                  style: TextStyle(
+                                    fontSize: isCompact ? 12 : 14,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: Row(
+                              children: [
+                                _buildQtyBtn(
+                                  icon: Icons.remove,
+                                  isCompact: isCompact,
+                                  onTap:
+                                      () => setState(() {
+                                        if (item['qty'] > 1) {
+                                          item['qty']--;
+                                        } else {
+                                          widget.cartItems.removeAt(index);
+                                        }
+                                        _recalculateTotals();
+                                      }),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                  ),
+                                  child: Text(
+                                    "${item['qty']}",
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: isCompact ? 14 : 16,
+                                    ),
+                                  ),
+                                ),
+                                _buildQtyBtn(
+                                  icon: Icons.add,
+                                  isCompact: isCompact,
+                                  onTap:
+                                      () => setState(() {
+                                        if (item['enableStockTracking'] ==
+                                                true &&
+                                            item['qty'] >= item['stock']) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                'Batas stok tercapai',
+                                              ),
+                                            ),
+                                          );
+                                        } else {
+                                          item['qty']++;
+                                          _recalculateTotals();
+                                        }
+                                      }),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(width: isCompact ? 8 : 12),
+                          IconButton(
+                            icon: Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                              size: isCompact ? 20 : 26,
+                            ),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed:
+                                () => setState(() {
+                                  widget.cartItems.removeAt(index);
+                                  _recalculateTotals();
+                                }),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+        ),
+      ],
+    );
+
+    Widget rightSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildLabel("Diskon Promo", isCompact),
+        InkWell(
+          onTap: () => _showDiscountSelectorDialog(),
+          child: Container(
+            padding: EdgeInsets.all(isCompact ? 12 : 16),
+            decoration: BoxDecoration(
+              color:
+                  _selectedDiscount != null
+                      ? Colors.orange.shade50
+                      : Colors.white,
+              border: Border.all(
+                color:
+                    _selectedDiscount != null
+                        ? Colors.orange
+                        : Colors.grey.shade300,
+              ),
+              borderRadius: BorderRadius.circular(isCompact ? 8 : 8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    _selectedDiscount != null
+                        ? _selectedDiscount!['nama']
+                        : "Pilih Diskon...",
+                    style: TextStyle(fontSize: isCompact ? 14 : 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Icon(
+                  Icons.local_offer_outlined,
+                  size: isCompact ? 18 : 22,
+                  color:
+                      _selectedDiscount != null ? Colors.orange : Colors.grey,
+                ),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(height: isCompact ? 16 : 20),
+        _buildLabel("Metode Pembayaran", isCompact),
+        SizedBox(
+          height: isCompact ? 40 : 48,
+          child: DropdownButtonFormField<String>(
+            value: selectedPaymentMethodId,
+            isDense: true,
+            style: TextStyle(
+              fontSize: isCompact ? 14 : 16,
+              color: Colors.black,
+            ),
+            iconSize: isCompact ? 20 : 28,
+            items:
+                paymentMethods
+                    .map(
+                      (m) => DropdownMenuItem(
+                        value: m['id'].toString(),
+                        child: Text(m['nama']),
+                      ),
+                    )
+                    .toList(),
+            onChanged:
+                (val) => setState(() {
+                  selectedPaymentMethodId = val;
+                  if (!_isTunaiPayment) {
+                    _bayarController.text = _finalTotalAfterPromo.toString();
+                    _kembalian = 0;
+                  }
+                }),
+            decoration: _inputDecoration(isCompact: isCompact),
+          ),
+        ),
+        SizedBox(height: isCompact ? 16 : 20),
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildLabel("Nama Customer", isCompact),
+                  SizedBox(
+                    height: isCompact ? 40 : 48,
+                    child: TextField(
+                      controller: _customerNameController,
+                      style: TextStyle(fontSize: isCompact ? 14 : 16),
+                      decoration: _inputDecoration(
+                        hint: "Nama",
+                        isCompact: isCompact,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: isCompact ? 12 : 16),
+          ],
+        ),
+        if (_isTunaiPayment) ...[
+          SizedBox(height: isCompact ? 16 : 20),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildLabel("Bayar", isCompact),
+                    SizedBox(
+                      height: isCompact ? 40 : 48,
+                      child: TextField(
+                        controller: _bayarController,
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(fontSize: isCompact ? 14 : 16),
+                        decoration: _inputDecoration(
+                          hint: "0",
+                          isCompact: isCompact,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: isCompact ? 12 : 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildLabel("Kembalian", isCompact),
+                    Container(
+                      height: isCompact ? 40 : 48,
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: isCompact ? 8 : 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          _formatCurrency(_kembalian < 0 ? 0 : _kembalian),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: isCompact ? 14 : 16,
+                            color: _kembalian < 0 ? Colors.red : Colors.green,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: isCompact ? 12 : 16),
+          Wrap(
+            spacing: isCompact ? 8 : 12,
+            runSpacing: isCompact ? 8 : 12,
+            children:
+                [5000, 10000, 20000, 50000, 100000].map((nominal) {
+                  return InkWell(
+                    onTap: () {
+                      _bayarController.text = NumberFormat.currency(
+                        locale: 'id_ID',
+                        symbol: '',
+                        decimalDigits: 0,
+                      ).format(nominal);
+                      _calculateChange();
+                    },
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isCompact ? 12 : 16,
+                        vertical: isCompact ? 8 : 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
+                      ),
+                      child: Text(
+                        _formatCurrency(nominal),
+                        style: TextStyle(
+                          fontSize: isCompact ? 12 : 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+          ),
+        ],
+      ],
+    );
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,444 +861,35 @@ class _CheckoutModalState extends State<CheckoutModal> {
             Text(
               "Detail Pesanan",
               style: TextStyle(
-                fontSize: isMobile ? 12 : 26,
+                fontSize: isCompact ? 18 : 26,
                 fontWeight: FontWeight.bold,
               ),
             ),
             IconButton(
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
-              iconSize: isMobile ? 16 : 32,
+              iconSize: isCompact ? 24 : 32,
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.close),
             ),
           ],
         ),
-        SizedBox(height: isMobile ? 6 : 24),
-
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 10,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (widget.enableOrderTipe) ...[
-                    _buildOrderTypeSelector(isMobile),
-                    SizedBox(height: isMobile ? 6 : 20),
-                  ],
-                  Container(
-                    padding: EdgeInsets.all(isMobile ? 4 : 20),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      border: Border.all(color: Colors.grey.shade200),
-                      borderRadius: BorderRadius.circular(isMobile ? 6 : 12),
-                    ),
-                    child: Column(
-                      children: [
-                        _summaryRowItem(
-                          "Subtotal",
-                          _localSubTotal,
-                          isMobile: isMobile,
-                        ),
-                        _summaryRowItem(
-                          "Diskon",
-                          _promoDiscountAmount,
-                          isNegative: true,
-                          color: Colors.red,
-                          isMobile: isMobile,
-                        ),
-                        _summaryRowItem(
-                          "Pajak",
-                          widget.pajak,
-                          isMobile: isMobile,
-                        ),
-                        Divider(height: isMobile ? 4 : 24),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              "Total Akhir",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: isMobile ? 8 : 18,
-                              ),
-                            ),
-                            Text(
-                              _formatCurrency(_finalTotalAfterPromo),
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                                fontSize: isMobile ? 10 : 24,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: isMobile ? 6 : 20),
-                  _buildLabel(
-                    "Daftar Produk (${widget.cartItems.length})",
-                    isMobile,
-                  ),
-                  SizedBox(height: isMobile ? 2 : 12),
-                  Container(
-                    constraints: BoxConstraints(
-                      maxHeight: isMobile ? 200 : 350,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: Colors.grey.shade200),
-                      borderRadius: BorderRadius.circular(isMobile ? 6 : 12),
-                    ),
-                    child:
-                        widget.cartItems.isEmpty
-                            ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Text(
-                                  "Keranjang kosong",
-                                  style: TextStyle(fontSize: isMobile ? 8 : 16),
-                                ),
-                              ),
-                            )
-                            : ListView.separated(
-                              shrinkWrap: true,
-                              physics: const ClampingScrollPhysics(),
-                              padding: EdgeInsets.all(isMobile ? 4 : 16),
-                              itemCount: widget.cartItems.length,
-                              separatorBuilder:
-                                  (_, __) => Divider(height: isMobile ? 4 : 16),
-                              itemBuilder: (context, index) {
-                                final item = widget.cartItems[index];
-                                return Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item['name'],
-                                            style: TextStyle(
-                                              fontSize: isMobile ? 8 : 16,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          Text(
-                                            _formatCurrency(item['price']),
-                                            style: TextStyle(
-                                              fontSize: isMobile ? 7 : 14,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey.shade100,
-                                        borderRadius: BorderRadius.circular(24),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          _buildQtyBtn(
-                                            icon: Icons.remove,
-                                            isMobile: isMobile,
-                                            onTap:
-                                                () => setState(() {
-                                                  if (item['qty'] > 1) {
-                                                    item['qty']--;
-                                                  } else {
-                                                    widget.cartItems.removeAt(
-                                                      index,
-                                                    );
-                                                  }
-                                                  _recalculateTotals();
-                                                }),
-                                          ),
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 2,
-                                            ),
-                                            child: Text(
-                                              "${item['qty']}",
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: isMobile ? 8 : 16,
-                                              ),
-                                            ),
-                                          ),
-                                          _buildQtyBtn(
-                                            icon: Icons.add,
-                                            isMobile: isMobile,
-                                            onTap:
-                                                () => setState(() {
-                                                  item['qty']++;
-                                                  _recalculateTotals();
-                                                }),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    SizedBox(width: isMobile ? 2 : 12),
-                                    IconButton(
-                                      icon: Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.red,
-                                        size: isMobile ? 12 : 26,
-                                      ),
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                      onPressed:
-                                          () => setState(() {
-                                            widget.cartItems.removeAt(index);
-                                            _recalculateTotals();
-                                          }),
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(width: isMobile ? 6 : 32),
-            Expanded(
-              flex: 10,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildLabel("Diskon Promo", isMobile),
-                  InkWell(
-                    onTap: () => _showDiscountSelectorDialog(),
-                    child: Container(
-                      padding: EdgeInsets.all(isMobile ? 4 : 16),
-                      decoration: BoxDecoration(
-                        color:
-                            _selectedDiscount != null
-                                ? Colors.orange.shade50
-                                : Colors.white,
-                        border: Border.all(
-                          color:
-                              _selectedDiscount != null
-                                  ? Colors.orange
-                                  : Colors.grey.shade300,
-                        ),
-                        borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              _selectedDiscount != null
-                                  ? _selectedDiscount!['nama']
-                                  : "Pilih Diskon...",
-                              style: TextStyle(fontSize: isMobile ? 8 : 16),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Icon(
-                            Icons.local_offer_outlined,
-                            size: isMobile ? 10 : 22,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: isMobile ? 6 : 20),
-                  _buildLabel("Metode Pembayaran", isMobile),
-                  SizedBox(
-                    height: isMobile ? 24 : null,
-                    child: DropdownButtonFormField<String>(
-                      value: selectedPaymentMethodId,
-                      isDense: true,
-                      style: TextStyle(
-                        fontSize: isMobile ? 8 : 16,
-                        color: Colors.black,
-                      ),
-                      iconSize: isMobile ? 12 : 28,
-                      items:
-                          paymentMethods
-                              .map(
-                                (m) => DropdownMenuItem(
-                                  value: m['id'].toString(),
-                                  child: Text(m['nama']),
-                                ),
-                              )
-                              .toList(),
-                      onChanged:
-                          (val) => setState(() {
-                            selectedPaymentMethodId = val;
-                            if (!_isTunaiPayment) {
-                              _bayarController.text =
-                                  _finalTotalAfterPromo.toString();
-                              _kembalian = 0;
-                            }
-                          }),
-                      decoration: _inputDecoration(isMobile: isMobile),
-                    ),
-                  ),
-                  SizedBox(height: isMobile ? 6 : 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildLabel("Nama Customer", isMobile),
-                            SizedBox(
-                              height: isMobile ? 24 : null,
-                              child: TextField(
-                                controller: _customerNameController,
-                                style: TextStyle(fontSize: isMobile ? 8 : 16),
-                                decoration: _inputDecoration(
-                                  hint: "Nama",
-                                  isMobile: isMobile,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(width: isMobile ? 4 : 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildLabel("No Antrian *", isMobile),
-                            SizedBox(
-                              height: isMobile ? 24 : null,
-                              child: TextField(
-                                controller: _antrianController,
-                                style: TextStyle(fontSize: isMobile ? 8 : 16),
-                                decoration: _inputDecoration(
-                                  hint: "A-01",
-                                  isMobile: isMobile,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_isTunaiPayment) ...[
-                    SizedBox(height: isMobile ? 6 : 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildLabel("Bayar", isMobile),
-                              SizedBox(
-                                height: isMobile ? 24 : null,
-                                child: TextField(
-                                  controller: _bayarController,
-                                  keyboardType: TextInputType.number,
-                                  style: TextStyle(fontSize: isMobile ? 8 : 16),
-                                  decoration: _inputDecoration(
-                                    hint: "0",
-                                    isMobile: isMobile,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(width: isMobile ? 4 : 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildLabel("Kembalian", isMobile),
-                              Container(
-                                height: isMobile ? 24 : null,
-                                width: double.infinity,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: isMobile ? 4 : 16,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(
-                                    isMobile ? 6 : 8,
-                                  ),
-                                  border: Border.all(
-                                    color: Colors.grey.shade300,
-                                  ),
-                                ),
-                                child: Text(
-                                  _formatCurrency(
-                                    _kembalian < 0 ? 0 : _kembalian,
-                                  ),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: isMobile ? 8 : 16,
-                                    color:
-                                        _kembalian < 0
-                                            ? Colors.red
-                                            : Colors.green,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: isMobile ? 4 : 16),
-                    Wrap(
-                      spacing: isMobile ? 2 : 12,
-                      runSpacing: isMobile ? 2 : 12,
-                      children:
-                          [5000, 10000, 20000, 50000, 100000].map((nominal) {
-                            return InkWell(
-                              onTap:
-                                  () =>
-                                      _bayarController.text =
-                                          nominal.toString(),
-                              child: Container(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: isMobile ? 4 : 16,
-                                  vertical: isMobile ? 2 : 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  border: Border.all(
-                                    color: Colors.grey.shade300,
-                                  ),
-                                  borderRadius: BorderRadius.circular(
-                                    isMobile ? 6 : 8,
-                                  ),
-                                ),
-                                child: Text(
-                                  _formatCurrency(nominal),
-                                  style: TextStyle(
-                                    fontSize: isMobile ? 7 : 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-
-        SizedBox(height: isMobile ? 8 : 40),
-
+        SizedBox(height: isCompact ? 16 : 24),
+        if (isSmall || isPortrait) ...[
+          leftSection,
+          SizedBox(height: isCompact ? 24 : 32),
+          rightSection,
+        ] else ...[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: leftSection),
+              const SizedBox(width: 32),
+              Expanded(child: rightSection),
+            ],
+          ),
+        ],
+        SizedBox(height: isCompact ? 24 : 40),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -913,19 +898,18 @@ class _CheckoutModalState extends State<CheckoutModal> {
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: Color(0xFF1976D2)),
                 padding: EdgeInsets.symmetric(
-                  horizontal: isMobile ? 6 : 32,
-                  vertical: isMobile ? 4 : 20,
+                  horizontal: isCompact ? 16 : 32,
+                  vertical: isCompact ? 12 : 20,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
+                  borderRadius: BorderRadius.circular(isCompact ? 8 : 8),
                 ),
-                minimumSize: isMobile ? const Size(0, 24) : null,
               ),
               child:
                   _isSubmitting
                       ? SizedBox(
-                        width: isMobile ? 10 : 24,
-                        height: isMobile ? 10 : 24,
+                        width: isCompact ? 16 : 24,
+                        height: isCompact ? 16 : 24,
                         child: const CircularProgressIndicator(strokeWidth: 2),
                       )
                       : Text(
@@ -933,29 +917,28 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         style: TextStyle(
                           color: const Color(0xFF1976D2),
                           fontWeight: FontWeight.bold,
-                          fontSize: isMobile ? 8 : 18,
+                          fontSize: isCompact ? 14 : 18,
                         ),
                       ),
             ),
-            SizedBox(width: isMobile ? 4 : 16),
+            SizedBox(width: isCompact ? 12 : 16),
             ElevatedButton(
               onPressed: _isSubmitting ? null : _processCheckout,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1976D2),
                 padding: EdgeInsets.symmetric(
-                  horizontal: isMobile ? 8 : 40,
-                  vertical: isMobile ? 4 : 20,
+                  horizontal: isCompact ? 24 : 40,
+                  vertical: isCompact ? 12 : 20,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
+                  borderRadius: BorderRadius.circular(isCompact ? 8 : 8),
                 ),
-                minimumSize: isMobile ? const Size(0, 24) : null,
               ),
               child:
                   _isSubmitting
                       ? SizedBox(
-                        width: isMobile ? 10 : 24,
-                        height: isMobile ? 10 : 24,
+                        width: isCompact ? 16 : 24,
+                        height: isCompact ? 16 : 24,
                         child: const CircularProgressIndicator(
                           color: Colors.white,
                           strokeWidth: 2,
@@ -966,7 +949,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
-                          fontSize: isMobile ? 8 : 18,
+                          fontSize: isCompact ? 14 : 18,
                         ),
                       ),
             ),
@@ -976,7 +959,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
     );
   }
 
-  Widget _buildInvoiceView(bool isMobile) {
+  Widget _buildInvoiceView() {
     final authProv = context.read<AuthProvider>();
     String paymentMethodName = '-';
     try {
@@ -988,7 +971,12 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
     final String? tenantImage = _outletData['tenant']?['image'];
     final String fullImageUrl =
-        tenantImage != null ? '$_baseUrl/$tenantImage' : '';
+        tenantImage != null && tenantImage.isNotEmpty
+            ? '$_baseUrl/$tenantImage'
+            : '';
+
+    final String receiptFooter =
+        widget.tenantSettings['receiptFooter']?.toString() ?? "Terima Kasih";
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -997,37 +985,34 @@ class _CheckoutModalState extends State<CheckoutModal> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
+            const Text(
               "Invoice",
-              style: TextStyle(
-                fontSize: isMobile ? 12 : 24,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             InkWell(
               onTap: () => Navigator.pop(context),
-              child: Icon(Icons.close, size: isMobile ? 14 : 28),
+              child: const Icon(Icons.close, size: 20, color: Colors.black87),
             ),
           ],
         ),
-        Divider(height: isMobile ? 12 : 40),
+        const Divider(height: 32, color: Color(0xFFEEEEEE)),
         Center(
           child: Column(
             children: [
-              if (tenantImage != null && tenantImage.isNotEmpty)
+              if (fullImageUrl.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(6),
                     child: Image.network(
                       fullImageUrl,
-                      height: isMobile ? 30 : 80,
-                      width: isMobile ? 30 : 80,
+                      height: 60,
+                      width: 60,
                       fit: BoxFit.cover,
                       errorBuilder:
-                          (context, error, stackTrace) => Icon(
+                          (context, error, stackTrace) => const Icon(
                             Icons.storefront,
-                            size: isMobile ? 24 : 60,
+                            size: 50,
                             color: Colors.grey,
                           ),
                     ),
@@ -1035,40 +1020,35 @@ class _CheckoutModalState extends State<CheckoutModal> {
                 ),
               Text(
                 _outletData['nama'] ?? 'Store',
-                style: TextStyle(
-                  fontSize: isMobile ? 12 : 26,
+                style: const TextStyle(
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              SizedBox(height: isMobile ? 2 : 8),
+              const SizedBox(height: 8),
               Text(
                 _outletData['alamat'] ?? '-',
-                style: TextStyle(
-                  fontSize: isMobile ? 8 : 14,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 textAlign: TextAlign.center,
               ),
             ],
           ),
         ),
-        Divider(height: isMobile ? 12 : 40),
+        const Divider(height: 32, color: Color(0xFFEEEEEE)),
         Row(
           children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildMetaText(
+                  _buildMetaTextInvoice(
                     "Invoice",
                     _orderData['orderNumber'] ?? '-',
-                    isMobile,
                   ),
-                  SizedBox(height: isMobile ? 4 : 16),
-                  _buildMetaText(
+                  const SizedBox(height: 12),
+                  _buildMetaTextInvoice(
                     "Kasir",
                     authProv.user?.name ?? 'Kasir',
-                    isMobile,
                   ),
                 ],
               ),
@@ -1077,158 +1057,249 @@ class _CheckoutModalState extends State<CheckoutModal> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildMetaText(
+                  _buildMetaTextInvoice(
                     "Tanggal",
                     _formatDate(DateTime.now().toString()),
-                    isMobile,
                   ),
-                  SizedBox(height: isMobile ? 4 : 16),
-                  _buildMetaText(
-                    "Customer",
-                    "${_orderData['nomorAntrian'] ?? _antrianController.text} / $_finalCustomerName",
-                    isMobile,
-                  ),
+                  const SizedBox(height: 12),
+                  _buildMetaTextInvoice("Customer", "$_finalCustomerName"),
                 ],
               ),
             ),
           ],
         ),
-        Divider(height: isMobile ? 12 : 40),
-        ..._fetchedOrderItems.map((item) {
-          String pName =
-              item['product'] != null
-                  ? (item['product']['nama'] ?? item['product']['name'] ?? '-')
-                  : '-';
-          return Padding(
-            padding: EdgeInsets.symmetric(
-              vertical: isMobile ? 2 : 8,
-              horizontal: 2,
+        const Divider(height: 32, color: Color(0xFFEEEEEE)),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF4F2F2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: const [
+              Expanded(
+                flex: 3,
+                child: Text(
+                  "Item",
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+              Expanded(
+                flex: 1,
+                child: Text(
+                  "Qty",
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  "Total",
+                  textAlign: TextAlign.right,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_fetchedOrderItems.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text(
+                "Detail item tidak tersedia",
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    pName,
-                    style: TextStyle(fontSize: isMobile ? 9 : 16),
+          )
+        else
+          ..._fetchedOrderItems.map((item) {
+            String pName =
+                item['product'] != null
+                    ? (item['product']['nama'] ??
+                        item['product']['name'] ??
+                        '-')
+                    : '-';
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Text(pName, style: const TextStyle(fontSize: 12)),
                   ),
-                ),
-                Expanded(
-                  flex: 1,
-                  child: Text(
-                    "${item['quantity']}x",
-                    style: TextStyle(fontSize: isMobile ? 9 : 16),
-                    textAlign: TextAlign.center,
+                  Expanded(
+                    flex: 1,
+                    child: Text(
+                      "${item['quantity']}x",
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ),
-                ),
-                Expanded(
-                  flex: 2,
-                  child: Text(
-                    _formatCurrency(item['total']),
-                    textAlign: TextAlign.right,
-                    style: TextStyle(fontSize: isMobile ? 9 : 16),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _formatCurrency(item['total']),
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        }),
-        const Divider(),
-        _buildSummaryRow(
+                ],
+              ),
+            );
+          }),
+        const Divider(color: Color(0xFFEEEEEE)),
+        _buildSummaryRowInvoice(
           "Total Tagihan:",
           _formatCurrency(_finalTotalAfterPromo),
           isBold: true,
-          fontSize: isMobile ? 10 : 20,
+          fontSize: 16,
         ),
-        _buildSummaryRow(
+        _buildSummaryRowInvoice(
           "Dibayar ($paymentMethodName):",
           _formatCurrency(_orderData['bayar'] ?? 0),
-          fontSize: isMobile ? 9 : 16,
         ),
-        _buildSummaryRow(
+        _buildSummaryRowInvoice(
           "Kembalian:",
           _formatCurrency(_orderData['kembali'] ?? 0),
           valueColor: Colors.green,
           isBold: true,
-          fontSize: isMobile ? 10 : 18,
+          fontSize: 16,
         ),
-        SizedBox(height: isMobile ? 12 : 40),
-        ElevatedButton.icon(
-          onPressed: () async {
-            try {
-              List<BluetoothDevice> connected =
-                  await FlutterBluePlus.connectedDevices;
-              if (connected.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Tidak ada printer!"),
-                    backgroundColor: Colors.red,
+        const Divider(height: 32, color: Color(0xFFEEEEEE)),
+        Center(
+          child: Column(
+            children: [
+              Text(
+                receiptFooter,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                "Barang yang sudah dibeli tidak dapat dikembalikan",
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF8F9FA),
+                  side: BorderSide.none,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                );
-                return;
-              }
-              await PrintService.printInvoice(
-                device: connected.first,
-                orderData: {
-                  ..._orderData,
-                  'tunai': _finalJumlahBayar,
-                  'kembalian': _finalKembalian,
-                  'customerName': _finalCustomerName,
-                  'paymentMethodName': paymentMethodName,
-                  'nomorAntrian':
-                      _orderData['nomorAntrian'] ?? _antrianController.text,
-                  'cashierName': authProv.user?.name ?? 'Kasir',
+                ),
+                child: const Text(
+                  "Tutup",
+                  style: TextStyle(color: Colors.black87, fontSize: 14),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  try {
+                    List<BluetoothDevice> connected =
+                        await FlutterBluePlus.connectedDevices;
+                    if (connected.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Tidak ada printer!"),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+
+                    Map<String, dynamic> printOutletData =
+                        Map<String, dynamic>.from(_outletData);
+                    if (printOutletData['tenant'] == null) {
+                      printOutletData['tenant'] = {};
+                    } else {
+                      printOutletData['tenant'] = Map<String, dynamic>.from(
+                        printOutletData['tenant'],
+                      );
+                    }
+                    if (printOutletData['tenant']['settings'] == null) {
+                      printOutletData['tenant']['settings'] = {};
+                    } else {
+                      printOutletData['tenant']['settings'] =
+                          Map<String, dynamic>.from(
+                            printOutletData['tenant']['settings'],
+                          );
+                    }
+                    printOutletData['tenant']['settings']['receiptFooter'] =
+                        receiptFooter;
+
+                    await PrintService.printInvoice(
+                      device: connected.first,
+                      orderData: {
+                        ..._orderData,
+                        'tunai': _finalJumlahBayar,
+                        'kembalian': _finalKembalian,
+                        'customerName': _finalCustomerName,
+                        'paymentMethodName': paymentMethodName,
+                        'cashierName': authProv.user?.name ?? 'Kasir',
+                      },
+                      outletData: printOutletData,
+                      orderItems: _fetchedOrderItems,
+                      logoUrl: fullImageUrl.isNotEmpty ? fullImageUrl : null,
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text("Error: $e")));
+                  }
                 },
-                outletData: _outletData,
-                orderItems: _fetchedOrderItems,
-                logoUrl: fullImageUrl.isNotEmpty ? fullImageUrl : null,
-              );
-            } catch (e) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text("Error: $e")));
-            }
-          },
-          icon: Icon(
-            Icons.print,
-            color: Colors.white,
-            size: isMobile ? 14 : 26,
-          ),
-          label: Text(
-            "Cetak Struk",
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: isMobile ? 10 : 18,
-              fontWeight: FontWeight.bold,
+                icon: const Icon(Icons.print, color: Colors.white, size: 20),
+                label: const Text(
+                  "Cetak Struk",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1976D2),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
             ),
-          ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1976D2),
-            minimumSize: Size(double.infinity, isMobile ? 32 : 60),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
+          ],
         ),
       ],
     );
   }
 
-  Widget _buildOrderTypeSelector(bool isMobile) {
+  Widget _buildOrderTypeSelector(bool isCompact) {
     return Row(
       children: [
         _orderTypeCard(
           "Dine In",
           Icons.restaurant,
           _orderType == "Dine In",
-          isMobile,
+          isCompact,
         ),
-        SizedBox(width: isMobile ? 4 : 16),
+        SizedBox(width: isCompact ? 8 : 16),
         _orderTypeCard(
           "Take Away",
           Icons.shopping_bag,
           _orderType == "Take Away",
-          isMobile,
+          isCompact,
         ),
       ],
     );
@@ -1238,17 +1309,17 @@ class _CheckoutModalState extends State<CheckoutModal> {
     String title,
     IconData icon,
     bool isSelected,
-    bool isMobile,
+    bool isCompact,
   ) {
     return Expanded(
       child: InkWell(
         onTap: () => setState(() => _orderType = title),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: EdgeInsets.symmetric(vertical: isMobile ? 4 : 20),
+          padding: EdgeInsets.symmetric(vertical: isCompact ? 8 : 20),
           decoration: BoxDecoration(
             color: isSelected ? Colors.blue.shade50 : Colors.white,
-            borderRadius: BorderRadius.circular(isMobile ? 6 : 10),
+            borderRadius: BorderRadius.circular(isCompact ? 6 : 10),
             border: Border.all(
               color: isSelected ? Colors.blue : Colors.grey.shade300,
               width: 1.5,
@@ -1259,13 +1330,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
               Icon(
                 icon,
                 color: isSelected ? Colors.blue : Colors.grey,
-                size: isMobile ? 12 : 32,
+                size: isCompact ? 18 : 32,
               ),
-              SizedBox(height: isMobile ? 2 : 12),
+              SizedBox(height: isCompact ? 4 : 12),
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: isMobile ? 8 : 16,
+                  fontSize: isCompact ? 12 : 16,
                   fontWeight: FontWeight.bold,
                   color: isSelected ? Colors.blue : Colors.grey,
                 ),
@@ -1280,42 +1351,36 @@ class _CheckoutModalState extends State<CheckoutModal> {
   Widget _buildQtyBtn({
     required IconData icon,
     required VoidCallback onTap,
-    required bool isMobile,
+    required bool isCompact,
   }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Padding(
-        padding: EdgeInsets.all(isMobile ? 2 : 8),
-        child: Icon(icon, size: isMobile ? 8 : 20, color: Colors.blue),
+        padding: EdgeInsets.all(isCompact ? 6 : 8),
+        child: Icon(icon, size: isCompact ? 14 : 20, color: Colors.blue),
       ),
     );
   }
 
-  Widget _buildMetaText(String label, String value, bool isMobile) {
+  Widget _buildMetaTextInvoice(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(
-            fontSize: isMobile ? 8 : 14,
-            color: Colors.grey.shade500,
-          ),
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
         ),
-        SizedBox(height: isMobile ? 2 : 6),
+        const SizedBox(height: 2),
         Text(
           value,
-          style: TextStyle(
-            fontSize: isMobile ? 9 : 18,
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),
       ],
     );
   }
 
-  Widget _buildSummaryRow(
+  Widget _buildSummaryRowInvoice(
     String label,
     String value, {
     Color? valueColor,
@@ -1323,7 +1388,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
     double fontSize = 13,
   }) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: fontSize > 16 ? 6 : 2),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -1339,7 +1404,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
             style: TextStyle(
               fontSize: fontSize,
               fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
-              color: valueColor,
+              color: valueColor ?? Colors.black87,
             ),
           ),
         ],
@@ -1352,21 +1417,21 @@ class _CheckoutModalState extends State<CheckoutModal> {
     int value, {
     bool isNegative = false,
     Color? color,
-    required bool isMobile,
+    required bool isCompact,
   }) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: isMobile ? 1 : 6),
+      padding: EdgeInsets.symmetric(vertical: isCompact ? 4 : 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
-            style: TextStyle(fontSize: isMobile ? 8 : 16, color: Colors.grey),
+            style: TextStyle(fontSize: isCompact ? 12 : 16, color: Colors.grey),
           ),
           Text(
             "${isNegative ? '-' : ''}${_formatCurrency(value)}",
             style: TextStyle(
-              fontSize: isMobile ? 8 : 16,
+              fontSize: isCompact ? 12 : 16,
               fontWeight: FontWeight.w600,
               color: color,
             ),
@@ -1376,13 +1441,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
     );
   }
 
-  Widget _buildLabel(String text, bool isMobile) {
+  Widget _buildLabel(String text, bool isCompact) {
     return Padding(
-      padding: EdgeInsets.only(bottom: isMobile ? 2 : 10),
+      padding: EdgeInsets.only(bottom: isCompact ? 4 : 10),
       child: Text(
         text,
         style: TextStyle(
-          fontSize: isMobile ? 8 : 16,
+          fontSize: isCompact ? 12 : 16,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -1402,17 +1467,17 @@ class _CheckoutModalState extends State<CheckoutModal> {
     }
   }
 
-  InputDecoration _inputDecoration({String? hint, required bool isMobile}) {
+  InputDecoration _inputDecoration({String? hint, required bool isCompact}) {
     return InputDecoration(
       hintText: hint,
       isDense: true,
-      hintStyle: TextStyle(fontSize: isMobile ? 8 : 16),
+      hintStyle: TextStyle(fontSize: isCompact ? 14 : 16),
       contentPadding: EdgeInsets.symmetric(
-        horizontal: 6,
-        vertical: isMobile ? 6 : 18,
+        horizontal: 12,
+        vertical: isCompact ? 10 : 18,
       ),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(isMobile ? 6 : 8),
+        borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
       ),
     );
   }

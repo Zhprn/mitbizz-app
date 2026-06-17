@@ -233,7 +233,7 @@ class _DashboardPageState extends State<DashboardPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            "Meja ${bill['nomorAntrian'] ?? '-'}",
+            "Meja ${bill['nama'] ?? '-'}",
             style: TextStyle(
               fontWeight: FontWeight.bold,
               fontSize: isMobile ? 12 : 16,

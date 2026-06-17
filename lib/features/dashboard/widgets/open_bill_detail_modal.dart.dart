@@ -3,7 +3,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
 import '../../../../core/providers/auth_provider.dart';
-
 import 'open_bill_invoice_modal.dart';
 
 class OpenBillDetailModal extends StatefulWidget {
@@ -22,17 +21,14 @@ class OpenBillDetailModal extends StatefulWidget {
 
 class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
   late List<dynamic> _currentItems;
-  late TextEditingController _nameController;
-
   final TextEditingController _bayarController = TextEditingController();
   int _kembalian = 0;
-
   List<dynamic> _allPaymentMethods = [];
   String? _selectedPaymentId;
   Map<String, dynamic>? _selectedDiscount;
   bool _isSubmitting = false;
   bool _isLoadingMethods = true;
-
+  String _receiptFooter = 'Terima Kasih';
   double _taxRate = 0.0;
   Map<String, dynamic> _outletData = {};
 
@@ -40,14 +36,6 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
   void initState() {
     super.initState();
     _currentItems = List.from(widget.bill['orderItems'] ?? []);
-    String cleanName =
-        widget.bill['notes']
-            ?.toString()
-            .replaceAll(RegExp(r'\[.*?\]'), '')
-            .trim() ??
-        "";
-    _nameController = TextEditingController(text: cleanName);
-
     _fetchPaymentMethods();
     _fetchOutletAndTaxData();
   }
@@ -55,7 +43,6 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
   @override
   void dispose() {
     _bayarController.dispose();
-    _nameController.dispose();
     super.dispose();
   }
 
@@ -85,18 +72,42 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     final outletId = authProv.outletId;
     if (outletId == null) return;
     try {
-      final res = await authProv.authenticatedGet('/api/outlets/$outletId');
-      if (res.statusCode == 200) {
-        final jsonRes = json.decode(res.body);
+      final outletRes = await authProv.authenticatedGet(
+        '/api/outlets/$outletId',
+      );
+      if (outletRes.statusCode == 200) {
+        final outletJson = json.decode(outletRes.body);
+        Map<String, dynamic> fetchedOutletData = Map<String, dynamic>.from(
+          outletJson['data'] ?? {},
+        );
+        double tempTaxRate = 0.0;
+        String tempReceiptFooter = 'Terima Kasih';
+        final tenantId =
+            fetchedOutletData['tenantId'] ?? fetchedOutletData['tenant']?['id'];
+        if (tenantId != null) {
+          final tenantRes = await authProv.authenticatedGet(
+            '/api/tenants/id/$tenantId',
+          );
+          if (tenantRes.statusCode == 200) {
+            final tenantJson = json.decode(tenantRes.body);
+            final tenantData = tenantJson['data'] ?? {};
+            final tenantSettings = tenantData['settings'] ?? {};
+            tempTaxRate =
+                double.tryParse(tenantSettings['taxRate']?.toString() ?? '0') ??
+                0.0;
+            tempReceiptFooter =
+                tenantSettings['receiptFooter']?.toString() ?? 'Terima Kasih';
+            if (fetchedOutletData['tenant'] == null) {
+              fetchedOutletData['tenant'] = {};
+            }
+            fetchedOutletData['tenant']['settings'] = tenantSettings;
+          }
+        }
         if (mounted) {
           setState(() {
-            _outletData = jsonRes['data'] ?? {};
-            _taxRate =
-                double.tryParse(
-                  _outletData['tenant']?['settings']?['taxRate']?.toString() ??
-                      '0',
-                ) ??
-                0.0;
+            _outletData = fetchedOutletData;
+            _taxRate = tempTaxRate;
+            _receiptFooter = tempReceiptFooter;
           });
           _calculateChange();
         }
@@ -183,8 +194,13 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
       );
       return;
     }
+
     final authProv = context.read<AuthProvider>();
     setState(() => _isSubmitting = true);
+
+    final String customerName =
+        widget.bill['nama'] ?? widget.bill['customerName'] ?? 'Guest';
+
     try {
       List<Map<String, dynamic>> diskonBreakdown = [];
       if (_selectedDiscount != null) {
@@ -197,7 +213,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
       }
       final payload = {
         "paymentMethodId": _selectedPaymentId,
-        "notes": "[LUNAS] ${_nameController.text}".trim(),
+        "notes": "[LUNAS] $customerName".trim(),
         "subtotal": _subtotal.toInt().toString(),
         "jumlahPajak": _pajak.toInt().toString(),
         "jumlahDiskon": _diskonAmount.toInt().toString(),
@@ -228,10 +244,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
                     ...responseData,
                     'tunai': _isTunaiPayment ? bayarValue : _total.toInt(),
                     'kembalian': _isTunaiPayment ? _kembalian : 0,
-                    'customerName':
-                        _nameController.text.isNotEmpty
-                            ? _nameController.text
-                            : (widget.bill['customerName'] ?? 'Guest'),
+                    'customerName': customerName,
                     'nomorAntrian':
                         widget.bill['nomorAntrian'] ??
                         responseData['nomorAntrian'] ??
@@ -263,6 +276,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     (sum, item) =>
         sum + (double.tryParse(item['total']?.toString() ?? '0') ?? 0),
   );
+
   double get _diskonAmount {
     if (_selectedDiscount == null) return 0;
     double rate =
@@ -288,33 +302,457 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
   @override
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
+    double screenHeight = MediaQuery.of(context).size.height;
+    bool isPortrait =
+        MediaQuery.of(context).orientation == Orientation.portrait;
     bool isCompact = screenWidth < 1000;
-    bool isSmall = screenWidth < 700;
 
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final screenHeight = MediaQuery.of(context).size.height;
+    double dynamicWidth =
+        isPortrait
+            ? screenWidth * 0.92
+            : (screenWidth < 1000 ? screenWidth * 0.90 : 1000);
 
-    double dynamicWidth;
-    double dynamicHeightFactor;
+    final String customerName =
+        widget.bill['nama'] ?? widget.bill['customerName'] ?? 'Guest';
 
-    if (isSmall) {
-      dynamicWidth = screenWidth * 0.70;
-      dynamicHeightFactor = 10;
-    } else if (isCompact) {
-      dynamicWidth = screenWidth * 0.75;
-      dynamicHeightFactor = 10;
-    } else {
-      dynamicWidth = 1000;
-      dynamicHeightFactor = 48;
-    }
+    Widget leftSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildStaticField("Nama Pelanggan", customerName, isCompact),
+        SizedBox(height: isCompact ? 12 : 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              "Daftar Pesanan",
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: isCompact ? 12 : 16,
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => _showAddProductModal(isCompact),
+              icon: Icon(Icons.add, size: isCompact ? 14 : 18),
+              label: Text(
+                "Tambah",
+                style: TextStyle(fontSize: isCompact ? 11 : 14),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0061C1),
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isCompact ? 12 : 20,
+                  vertical: isCompact ? 6 : 12,
+                ),
+                minimumSize: isCompact ? const Size(0, 30) : null,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: isCompact ? 8 : 12),
+        Container(
+          height: isPortrait ? screenHeight * 0.25 : screenHeight * 0.4,
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(isCompact ? 8 : 12),
+            color: Colors.grey.shade50,
+          ),
+          child: RawScrollbar(
+            thumbColor: Colors.grey.shade400,
+            radius: const Radius.circular(8),
+            thickness: isCompact ? 4 : 6,
+            child: ListView.separated(
+              physics: const ClampingScrollPhysics(),
+              padding: EdgeInsets.all(isCompact ? 8 : 12),
+              itemCount: _currentItems.length,
+              separatorBuilder: (_, __) => SizedBox(height: isCompact ? 8 : 10),
+              itemBuilder: (context, index) {
+                final item = _currentItems[index];
+                return _itemCard(
+                  item,
+                  () => _deleteProduct(item['id'], index),
+                  isCompact,
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+
+    Widget rightSection = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          "Metode Pembayaran",
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: isCompact ? 12 : 16,
+          ),
+        ),
+        SizedBox(height: isCompact ? 8 : 12),
+        SizedBox(
+          height: isCompact ? 36 : 48,
+          child: DropdownButtonFormField<String>(
+            value: _selectedPaymentId,
+            isDense: true,
+            style: TextStyle(
+              fontSize: isCompact ? 12 : 14,
+              color: Colors.black,
+            ),
+            iconSize: isCompact ? 18 : 24,
+            items:
+                _allPaymentMethods
+                    .map(
+                      (m) => DropdownMenuItem(
+                        value: m['id'].toString(),
+                        child: Text(m['nama']),
+                      ),
+                    )
+                    .toList(),
+            onChanged: (val) {
+              setState(() {
+                _selectedPaymentId = val;
+                if (!_isTunaiPayment) {
+                  _bayarController.text = _total.toInt().toString();
+                  _kembalian = 0;
+                }
+              });
+            },
+            decoration: InputDecoration(
+              hintText: "Pilih Metode",
+              hintStyle: TextStyle(fontSize: isCompact ? 12 : 14),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: isCompact ? 12 : 16,
+                vertical: isCompact ? 8 : 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+            ),
+          ),
+        ),
+        SizedBox(height: isCompact ? 12 : 24),
+        if (_isTunaiPayment) ...[
+          Text(
+            "Informasi Pembayaran",
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: isCompact ? 12 : 16,
+            ),
+          ),
+          SizedBox(height: isCompact ? 8 : 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Bayar",
+                      style: TextStyle(
+                        fontSize: isCompact ? 11 : 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    SizedBox(height: isCompact ? 4 : 8),
+                    SizedBox(
+                      height: isCompact ? 36 : 48,
+                      child: TextField(
+                        controller: _bayarController,
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(fontSize: isCompact ? 12 : 14),
+                        onChanged: (val) {
+                          String numOnly = val.replaceAll(
+                            RegExp(r'[^0-9]'),
+                            '',
+                          );
+                          if (numOnly.isNotEmpty) {
+                            String f = NumberFormat.currency(
+                              locale: 'id_ID',
+                              symbol: '',
+                              decimalDigits: 0,
+                            ).format(int.parse(numOnly));
+                            _bayarController.value = TextEditingValue(
+                              text: f,
+                              selection: TextSelection.collapsed(
+                                offset: f.length,
+                              ),
+                            );
+                          }
+                          _calculateChange();
+                        },
+                        decoration: InputDecoration(
+                          hintText: "0",
+                          hintStyle: TextStyle(fontSize: isCompact ? 12 : 14),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: isCompact ? 12 : 16,
+                            vertical: isCompact ? 8 : 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                              isCompact ? 6 : 8,
+                            ),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: isCompact ? 12 : 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Kembalian",
+                      style: TextStyle(
+                        fontSize: isCompact ? 11 : 14,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    SizedBox(height: isCompact ? 4 : 8),
+                    Container(
+                      width: double.infinity,
+                      height: isCompact ? 36 : 48,
+                      padding: EdgeInsets.symmetric(
+                        vertical: isCompact ? 8 : 12,
+                        horizontal: isCompact ? 12 : 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          _kembalian < 0
+                              ? "Kurang: ${_formatCurrency(_kembalian.abs())}"
+                              : _formatCurrency(_kembalian),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: isCompact ? 12 : 14,
+                            color: _kembalian < 0 ? Colors.red : Colors.green,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: isCompact ? 12 : 16),
+          Wrap(
+            spacing: isCompact ? 8 : 12,
+            runSpacing: isCompact ? 8 : 12,
+            children:
+                [10000, 20000, 50000, 100000].map((nominal) {
+                  return InkWell(
+                    onTap: () {
+                      _bayarController.text = NumberFormat.currency(
+                        locale: 'id_ID',
+                        symbol: '',
+                        decimalDigits: 0,
+                      ).format(nominal);
+                      _calculateChange();
+                    },
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isCompact ? 12 : 16,
+                        vertical: isCompact ? 8 : 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
+                      ),
+                      child: Text(
+                        _formatCurrency(nominal),
+                        style: TextStyle(fontSize: isCompact ? 11 : 13),
+                      ),
+                    ),
+                  );
+                }).toList(),
+          ),
+          SizedBox(height: isCompact ? 16 : 24),
+        ],
+        Text(
+          "Diskon Promo",
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: isCompact ? 12 : 16,
+          ),
+        ),
+        SizedBox(height: isCompact ? 8 : 12),
+        InkWell(
+          onTap: () => _showDiscountModal(isCompact),
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isCompact ? 12 : 16,
+              vertical: isCompact ? 12 : 16,
+            ),
+            decoration: BoxDecoration(
+              color:
+                  _selectedDiscount != null
+                      ? Colors.orange.shade50
+                      : Colors.white,
+              border: Border.all(
+                color:
+                    _selectedDiscount != null
+                        ? Colors.orange
+                        : Colors.grey.shade300,
+              ),
+              borderRadius: BorderRadius.circular(isCompact ? 8 : 10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _selectedDiscount != null
+                      ? _selectedDiscount!['nama']
+                      : "Pilih Diskon...",
+                  style: TextStyle(
+                    fontSize: isCompact ? 11 : 14,
+                    color:
+                        _selectedDiscount != null
+                            ? Colors.orange.shade800
+                            : Colors.grey.shade600,
+                    fontWeight:
+                        _selectedDiscount != null
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                  ),
+                ),
+                if (_selectedDiscount != null)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _selectedDiscount = null);
+                      _calculateChange();
+                    },
+                    child: Icon(
+                      Icons.close,
+                      size: isCompact ? 16 : 20,
+                      color: Colors.red,
+                    ),
+                  )
+                else
+                  Icon(
+                    Icons.local_offer_outlined,
+                    size: isCompact ? 16 : 20,
+                    color: Colors.grey,
+                  ),
+              ],
+            ),
+          ),
+        ),
+        Divider(height: isCompact ? 24 : 40),
+        _summaryRow(
+          "Subtotal:",
+          _formatCurrency(_subtotal),
+          isCompact: isCompact,
+        ),
+        if (_selectedDiscount != null)
+          _summaryRow(
+            "Diskon (${_selectedDiscount!['rate']}%):",
+            "- ${_formatCurrency(_diskonAmount)}",
+            color: Colors.red,
+            isCompact: isCompact,
+          ),
+        _summaryRow(
+          "Pajak (${_taxRate.toInt()}%):",
+          _formatCurrency(_pajak),
+          isCompact: isCompact,
+        ),
+        _summaryRow(
+          "Total Akhir:",
+          _formatCurrency(_total),
+          isBold: true,
+          fontSize: isCompact ? 14 : 20,
+          color: const Color(0xFF0061C1),
+          isCompact: isCompact,
+        ),
+        SizedBox(height: isCompact ? 20 : 32),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: isCompact ? 40 : 55,
+                child: OutlinedButton(
+                  onPressed: _isSubmitting ? null : _cancelOpenBill,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    side: const BorderSide(color: Colors.red),
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(isCompact ? 6 : 10),
+                    ),
+                  ),
+                  child: Text(
+                    "Batal",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: isCompact ? 12 : 16,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(width: isCompact ? 12 : 16),
+            Expanded(
+              flex: 2,
+              child: SizedBox(
+                height: isCompact ? 40 : 55,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _confirmPayment,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0061C1),
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(isCompact ? 6 : 10),
+                    ),
+                  ),
+                  child:
+                      _isSubmitting
+                          ? SizedBox(
+                            width: isCompact ? 16 : 24,
+                            height: isCompact ? 16 : 24,
+                            child: const CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                          : Text(
+                            "Bayar",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: isCompact ? 12 : 16,
+                            ),
+                          ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
 
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(isCompact ? 8 : 16),
+        borderRadius: BorderRadius.circular(isCompact ? 12 : 16),
       ),
       insetPadding: EdgeInsets.symmetric(
-        horizontal: isCompact ? 8 : 20,
+        horizontal: isCompact ? 16 : 24,
         vertical: 24,
       ),
       child: AnimatedContainer(
@@ -322,13 +760,13 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
         curve: Curves.easeOut,
         width: dynamicWidth,
         constraints: BoxConstraints(
-          maxHeight: screenHeight - bottomInset - dynamicHeightFactor,
+          maxHeight: screenHeight - bottomInset - (isCompact ? 24 : 48),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(isCompact ? 8 : 16),
+          borderRadius: BorderRadius.circular(isCompact ? 12 : 16),
           child: SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            padding: EdgeInsets.all(isCompact ? 10 : 24),
+            padding: EdgeInsets.all(isCompact ? 16 : 24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -338,523 +776,35 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
                     Text(
                       "Detail Pesanan",
                       style: TextStyle(
-                        fontSize: isCompact ? 10 : 20,
+                        fontSize: isCompact ? 16 : 20,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     IconButton(
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
-                      iconSize: isCompact ? 14 : 24,
+                      iconSize: isCompact ? 20 : 24,
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(Icons.close),
                     ),
                   ],
                 ),
-                Divider(height: isCompact ? 8 : 32),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 5,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildInputLabel(
-                                  "Nama Pelanggan",
-                                  _nameController,
-                                  isCompact,
-                                ),
-                              ),
-                              SizedBox(width: isCompact ? 6 : 16),
-                              _buildStaticInfo(
-                                "No. Meja",
-                                widget.bill['nomorAntrian'] ?? "-",
-                                isCompact,
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: isCompact ? 6 : 24),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                "Daftar Pesanan",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: isCompact ? 8 : 14,
-                                ),
-                              ),
-                              ElevatedButton.icon(
-                                onPressed:
-                                    () => _showAddProductModal(isCompact),
-                                icon: Icon(Icons.add, size: isCompact ? 8 : 16),
-                                label: Text(
-                                  "Tambah",
-                                  style: TextStyle(
-                                    fontSize: isCompact ? 7 : 14,
-                                  ),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0061C1),
-                                  foregroundColor: Colors.white,
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: isCompact ? 6 : 16,
-                                    vertical: isCompact ? 2 : 8,
-                                  ),
-                                  minimumSize:
-                                      isCompact ? const Size(0, 20) : null,
-                                ),
-                              ),
-                            ],
-                          ),
-                          SizedBox(height: isCompact ? 4 : 12),
-                          Container(
-                            height: isCompact ? 180 : 480,
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade200),
-                              borderRadius: BorderRadius.circular(
-                                isCompact ? 6 : 12,
-                              ),
-                              color: Colors.grey.shade50,
-                            ),
-                            child: RawScrollbar(
-                              thumbColor: Colors.grey.shade400,
-                              radius: const Radius.circular(8),
-                              thickness: isCompact ? 2 : 4,
-                              child: ListView.separated(
-                                physics: const ClampingScrollPhysics(),
-                                padding: EdgeInsets.all(isCompact ? 4 : 12),
-                                itemCount: _currentItems.length,
-                                separatorBuilder:
-                                    (_, __) =>
-                                        SizedBox(height: isCompact ? 4 : 10),
-                                itemBuilder: (context, index) {
-                                  final item = _currentItems[index];
-                                  return _itemCard(
-                                    item,
-                                    () => _deleteProduct(item['id'], index),
-                                    isCompact,
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(width: isCompact ? 6 : 32),
-                    Expanded(
-                      flex: 4,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "Metode Pembayaran",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: isCompact ? 8 : 14,
-                            ),
-                          ),
-                          SizedBox(height: isCompact ? 4 : 12),
-                          SizedBox(
-                            height: isCompact ? 22 : null,
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedPaymentId,
-                              isDense: true,
-                              style: TextStyle(
-                                fontSize: isCompact ? 8 : 14,
-                                color: Colors.black,
-                              ),
-                              iconSize: isCompact ? 12 : 24,
-                              items:
-                                  _allPaymentMethods
-                                      .map(
-                                        (m) => DropdownMenuItem(
-                                          value: m['id'].toString(),
-                                          child: Text(m['nama']),
-                                        ),
-                                      )
-                                      .toList(),
-                              onChanged: (val) {
-                                setState(() {
-                                  _selectedPaymentId = val;
-                                  if (!_isTunaiPayment) {
-                                    _bayarController.text =
-                                        _total.toInt().toString();
-                                    _kembalian = 0;
-                                  }
-                                });
-                              },
-                              decoration: InputDecoration(
-                                hintText: "Pilih Metode",
-                                hintStyle: TextStyle(
-                                  fontSize: isCompact ? 8 : 14,
-                                ),
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: isCompact ? 6 : 16,
-                                  vertical: isCompact ? 4 : 12,
-                                ),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    isCompact ? 4 : 8,
-                                  ),
-                                ),
-                                filled: true,
-                                fillColor: Colors.white,
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: isCompact ? 6 : 24),
-                          if (_isTunaiPayment) ...[
-                            Text(
-                              "Informasi Pembayaran",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: isCompact ? 9 : 14,
-                              ),
-                            ),
-                            SizedBox(height: isCompact ? 4 : 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        "Bayar",
-                                        style: TextStyle(
-                                          fontSize: isCompact ? 7 : 12,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                      SizedBox(height: isCompact ? 2 : 6),
-                                      SizedBox(
-                                        height: isCompact ? 22 : null,
-                                        child: TextField(
-                                          controller: _bayarController,
-                                          keyboardType: TextInputType.number,
-                                          style: TextStyle(
-                                            fontSize: isCompact ? 8 : 14,
-                                          ),
-                                          onChanged: (val) {
-                                            String numOnly = val.replaceAll(
-                                              RegExp(r'[^0-9]'),
-                                              '',
-                                            );
-                                            if (numOnly.isNotEmpty) {
-                                              String f = NumberFormat.currency(
-                                                locale: 'id_ID',
-                                                symbol: '',
-                                                decimalDigits: 0,
-                                              ).format(int.parse(numOnly));
-                                              _bayarController
-                                                  .value = TextEditingValue(
-                                                text: f,
-                                                selection:
-                                                    TextSelection.collapsed(
-                                                      offset: f.length,
-                                                    ),
-                                              );
-                                            }
-                                            _calculateChange();
-                                          },
-                                          decoration: InputDecoration(
-                                            hintText: "0",
-                                            hintStyle: TextStyle(
-                                              fontSize: isCompact ? 8 : 14,
-                                            ),
-                                            isDense: true,
-                                            contentPadding:
-                                                EdgeInsets.symmetric(
-                                                  horizontal:
-                                                      isCompact ? 4 : 16,
-                                                  vertical: isCompact ? 4 : 12,
-                                                ),
-                                            border: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(
-                                                    isCompact ? 4 : 6,
-                                                  ),
-                                            ),
-                                            filled: true,
-                                            fillColor: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                SizedBox(width: isCompact ? 4 : 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        "Kembalian",
-                                        style: TextStyle(
-                                          fontSize: isCompact ? 7 : 12,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
-                                      SizedBox(height: isCompact ? 2 : 6),
-                                      Container(
-                                        width: double.infinity,
-                                        height: isCompact ? 22 : null,
-                                        padding: EdgeInsets.symmetric(
-                                          vertical: isCompact ? 4 : 12,
-                                          horizontal: isCompact ? 4 : 16,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.shade100,
-                                          borderRadius: BorderRadius.circular(
-                                            isCompact ? 4 : 6,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.grey.shade300,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          _kembalian < 0
-                                              ? "Kurang: ${_formatCurrency(_kembalian.abs())}"
-                                              : _formatCurrency(_kembalian),
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: isCompact ? 8 : 14,
-                                            color:
-                                                _kembalian < 0
-                                                    ? Colors.red
-                                                    : Colors.green,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: isCompact ? 4 : 12),
-                            Wrap(
-                              spacing: isCompact ? 2 : 8,
-                              runSpacing: isCompact ? 2 : 8,
-                              children:
-                                  [10000, 20000, 50000, 100000].map((nominal) {
-                                    return InkWell(
-                                      onTap: () {
-                                        _bayarController
-                                            .text = NumberFormat.currency(
-                                          locale: 'id_ID',
-                                          symbol: '',
-                                          decimalDigits: 0,
-                                        ).format(nominal);
-                                        _calculateChange();
-                                      },
-                                      child: Container(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: isCompact ? 4 : 10,
-                                          vertical: isCompact ? 2 : 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          border: Border.all(
-                                            color: Colors.grey.shade300,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            isCompact ? 4 : 8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          _formatCurrency(nominal),
-                                          style: TextStyle(
-                                            fontSize: isCompact ? 6 : 11,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                            ),
-                            SizedBox(height: isCompact ? 6 : 24),
-                          ],
-                          Text(
-                            "Diskon Promo",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: isCompact ? 8 : 14,
-                            ),
-                          ),
-                          SizedBox(height: isCompact ? 2 : 8),
-                          InkWell(
-                            onTap: () => _showDiscountModal(isCompact),
-                            child: Container(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: isCompact ? 4 : 16,
-                                vertical: isCompact ? 4 : 14,
-                              ),
-                              decoration: BoxDecoration(
-                                color:
-                                    _selectedDiscount != null
-                                        ? Colors.orange.shade50
-                                        : Colors.white,
-                                border: Border.all(
-                                  color:
-                                      _selectedDiscount != null
-                                          ? Colors.orange
-                                          : Colors.grey.shade300,
-                                ),
-                                borderRadius: BorderRadius.circular(
-                                  isCompact ? 4 : 10,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    _selectedDiscount != null
-                                        ? _selectedDiscount!['nama']
-                                        : "Pilih Diskon...",
-                                    style: TextStyle(
-                                      fontSize: isCompact ? 7 : 14,
-                                      color:
-                                          _selectedDiscount != null
-                                              ? Colors.orange.shade800
-                                              : Colors.grey.shade600,
-                                      fontWeight:
-                                          _selectedDiscount != null
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                    ),
-                                  ),
-                                  if (_selectedDiscount != null)
-                                    GestureDetector(
-                                      onTap: () {
-                                        setState(
-                                          () => _selectedDiscount = null,
-                                        );
-                                        _calculateChange();
-                                      },
-                                      child: Icon(
-                                        Icons.close,
-                                        size: isCompact ? 10 : 18,
-                                        color: Colors.red,
-                                      ),
-                                    )
-                                  else
-                                    Icon(
-                                      Icons.local_offer_outlined,
-                                      size: isCompact ? 10 : 18,
-                                      color: Colors.grey,
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          Divider(height: isCompact ? 8 : 40),
-                          _summaryRow(
-                            "Subtotal:",
-                            _formatCurrency(_subtotal),
-                            isCompact: isCompact,
-                          ),
-                          if (_selectedDiscount != null)
-                            _summaryRow(
-                              "Diskon (${_selectedDiscount!['rate']}%):",
-                              "- ${_formatCurrency(_diskonAmount)}",
-                              color: Colors.red,
-                              isCompact: isCompact,
-                            ),
-                          _summaryRow(
-                            "Pajak (${_taxRate.toInt()}%):",
-                            _formatCurrency(_pajak),
-                            isCompact: isCompact,
-                          ),
-                          _summaryRow(
-                            "Total Akhir:",
-                            _formatCurrency(_total),
-                            isBold: true,
-                            fontSize: isCompact ? 9 : 20,
-                            color: const Color(0xFF0061C1),
-                            isCompact: isCompact,
-                          ),
-                          SizedBox(height: isCompact ? 6 : 32),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SizedBox(
-                                  height: isCompact ? 22 : 55,
-                                  child: OutlinedButton(
-                                    onPressed:
-                                        _isSubmitting ? null : _cancelOpenBill,
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.red,
-                                      side: const BorderSide(color: Colors.red),
-                                      padding: EdgeInsets.zero,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          isCompact ? 4 : 10,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      "Batal",
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: isCompact ? 8 : 16,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              SizedBox(width: isCompact ? 4 : 12),
-                              Expanded(
-                                flex: 2,
-                                child: SizedBox(
-                                  height: isCompact ? 22 : 55,
-                                  child: ElevatedButton(
-                                    onPressed:
-                                        _isSubmitting ? null : _confirmPayment,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF0061C1),
-                                      padding: EdgeInsets.zero,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          isCompact ? 4 : 10,
-                                        ),
-                                      ),
-                                    ),
-                                    child:
-                                        _isSubmitting
-                                            ? SizedBox(
-                                              width: isCompact ? 10 : 20,
-                                              height: isCompact ? 10 : 20,
-                                              child:
-                                                  const CircularProgressIndicator(
-                                                    color: Colors.white,
-                                                    strokeWidth: 2,
-                                                  ),
-                                            )
-                                            : Text(
-                                              "Bayar",
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: isCompact ? 8 : 16,
-                                              ),
-                                            ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                Divider(height: isCompact ? 16 : 32),
+                if (isPortrait) ...[
+                  leftSection,
+                  SizedBox(height: isCompact ? 16 : 24),
+                  Divider(height: isCompact ? 16 : 32),
+                  rightSection,
+                ] else ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 11, child: leftSection),
+                      SizedBox(width: isCompact ? 24 : 40),
+                      Expanded(flex: 9, child: rightSection),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
@@ -925,67 +875,34 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     );
   }
 
-  Widget _buildInputLabel(
-    String label,
-    TextEditingController controller,
-    bool isCompact,
-  ) {
+  Widget _buildStaticField(String label, String value, bool isCompact) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: isCompact ? 7 : 12, color: Colors.grey),
+          style: TextStyle(fontSize: isCompact ? 11 : 14, color: Colors.grey),
         ),
-        SizedBox(height: isCompact ? 2 : 6),
+        SizedBox(height: isCompact ? 4 : 8),
         Container(
-          height: isCompact ? 22 : null,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(isCompact ? 4 : 8),
-            border: Border.all(color: Colors.grey.shade500, width: 0.5),
+          width: double.infinity,
+          height: isCompact ? 36 : 48,
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 12 : 16,
+            vertical: isCompact ? 8 : 12,
           ),
-          child: TextField(
-            controller: controller,
-            style: TextStyle(fontSize: isCompact ? 8 : 14),
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: isCompact ? 6 : 16,
-                vertical: isCompact ? 4 : 12,
-              ),
-              border: InputBorder.none,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStaticInfo(String label, String value, bool isCompact) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(fontSize: isCompact ? 7 : 12, color: Colors.grey),
-        ),
-        SizedBox(height: isCompact ? 2 : 6),
-        Container(
-          width: isCompact ? 36 : 80,
-          height: isCompact ? 22 : null,
-          padding: EdgeInsets.symmetric(vertical: isCompact ? 4 : 12),
           decoration: BoxDecoration(
             color: Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(isCompact ? 4 : 8),
+            borderRadius: BorderRadius.circular(isCompact ? 6 : 8),
             border: Border.all(color: Colors.grey.shade300),
           ),
-          child: Center(
+          child: Align(
+            alignment: Alignment.centerLeft,
             child: Text(
               value,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                fontSize: isCompact ? 8 : 14,
+                fontSize: isCompact ? 12 : 14,
               ),
             ),
           ),
@@ -996,20 +913,20 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
 
   Widget _itemCard(dynamic item, VoidCallback onDelete, bool isCompact) {
     return Container(
-      padding: EdgeInsets.all(isCompact ? 4 : 12),
+      padding: EdgeInsets.all(isCompact ? 8 : 12),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(isCompact ? 4 : 12),
+        borderRadius: BorderRadius.circular(isCompact ? 8 : 12),
       ),
       child: Row(
         children: [
           Icon(
             Icons.fastfood,
             color: const Color(0xFF0061C1),
-            size: isCompact ? 10 : 24,
+            size: isCompact ? 18 : 24,
           ),
-          SizedBox(width: isCompact ? 4 : 12),
+          SizedBox(width: isCompact ? 12 : 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1018,16 +935,17 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
                   item['product']?['nama'] ?? '-',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    fontSize: isCompact ? 7 : 14,
+                    fontSize: isCompact ? 12 : 14,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                SizedBox(height: 2),
                 Text(
                   "x${item['quantity']}",
                   style: TextStyle(
                     color: Colors.grey,
-                    fontSize: isCompact ? 7 : 12,
+                    fontSize: isCompact ? 11 : 12,
                   ),
                 ),
               ],
@@ -1037,10 +955,10 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
             _formatCurrency(double.tryParse(item['total'].toString()) ?? 0),
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: isCompact ? 7 : 14,
+              fontSize: isCompact ? 12 : 14,
             ),
           ),
-          SizedBox(width: isCompact ? 2 : 8),
+          SizedBox(width: isCompact ? 8 : 12),
           IconButton(
             onPressed: onDelete,
             constraints: const BoxConstraints(),
@@ -1048,7 +966,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
             icon: Icon(
               Icons.delete_outline,
               color: Colors.red,
-              size: isCompact ? 12 : 24,
+              size: isCompact ? 20 : 24,
             ),
           ),
         ],
@@ -1064,9 +982,9 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     Color? color,
     required bool isCompact,
   }) {
-    double f = fontSize ?? (isCompact ? 7 : 14);
+    double f = fontSize ?? (isCompact ? 11 : 14);
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: isCompact ? 1 : 4),
+      padding: EdgeInsets.symmetric(vertical: isCompact ? 4 : 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -1125,8 +1043,9 @@ class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
                   .toList();
           _isLoading = false;
         });
-      } else
+      } else {
         setState(() => _isLoading = false);
+      }
     } catch (e) {
       setState(() => _isLoading = false);
     }
@@ -1139,13 +1058,13 @@ class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
         "Pilih Diskon Promo",
         style: TextStyle(
           fontWeight: FontWeight.bold,
-          fontSize: widget.isMobile ? 12 : 20,
+          fontSize: widget.isMobile ? 14 : 20,
         ),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       content: Container(
-        width: widget.isMobile ? 250 : 400,
-        constraints: BoxConstraints(maxHeight: widget.isMobile ? 250 : 400),
+        width: widget.isMobile ? 300 : 400,
+        constraints: BoxConstraints(maxHeight: widget.isMobile ? 350 : 400),
         child:
             _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -1155,7 +1074,7 @@ class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
                     "Tidak ada diskon tersedia",
                     style: TextStyle(
                       color: Colors.grey,
-                      fontSize: widget.isMobile ? 9 : 14,
+                      fontSize: widget.isMobile ? 12 : 14,
                     ),
                   ),
                 )
@@ -1167,10 +1086,10 @@ class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
                     final d = _discounts[i];
                     return ListTile(
                       contentPadding: EdgeInsets.symmetric(
-                        horizontal: widget.isMobile ? 4 : 16,
+                        horizontal: widget.isMobile ? 8 : 16,
                       ),
                       leading: Container(
-                        padding: EdgeInsets.all(widget.isMobile ? 4 : 8),
+                        padding: EdgeInsets.all(widget.isMobile ? 6 : 8),
                         decoration: BoxDecoration(
                           color: Colors.orange.shade50,
                           borderRadius: BorderRadius.circular(8),
@@ -1178,23 +1097,23 @@ class _DiscountSelectorDialogState extends State<DiscountSelectorDialog> {
                         child: Icon(
                           Icons.local_offer,
                           color: Colors.orange,
-                          size: widget.isMobile ? 14 : 24,
+                          size: widget.isMobile ? 18 : 24,
                         ),
                       ),
                       title: Text(
                         d['nama'] ?? '-',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: widget.isMobile ? 10 : 14,
+                          fontSize: widget.isMobile ? 12 : 14,
                         ),
                       ),
                       subtitle: Text(
                         "Rate: ${d['rate']}% • Level: ${d['level']}",
-                        style: TextStyle(fontSize: widget.isMobile ? 8 : 12),
+                        style: TextStyle(fontSize: widget.isMobile ? 11 : 12),
                       ),
                       trailing: Icon(
                         Icons.arrow_forward_ios,
-                        size: widget.isMobile ? 10 : 14,
+                        size: widget.isMobile ? 14 : 16,
                         color: Colors.grey,
                       ),
                       onTap: () => widget.onDiscountSelected(d),
@@ -1222,7 +1141,6 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
   List<dynamic> _products = [];
   String _search = "";
   bool _isLoading = true;
-
   final ScrollController _scrollController = ScrollController();
   int _currentPage = 1;
   int _totalPages = 1;
@@ -1232,7 +1150,6 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
   void initState() {
     super.initState();
     _fetchProducts();
-
     _scrollController.addListener(() {
       if (_scrollController.position.pixels >=
           _scrollController.position.maxScrollExtent - 200) {
@@ -1255,13 +1172,11 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
       _isLoading = true;
       _currentPage = 1;
     });
-
     final authProv = context.read<AuthProvider>();
     try {
       final res = await authProv.authenticatedGet(
         '/api/products?search=$_search&page=$_currentPage&limit=10',
       );
-
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
         if (mounted) {
@@ -1281,20 +1196,16 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
 
   Future<void> _fetchNextPage() async {
     if (_isFetchingMore) return;
-
     setState(() => _isFetchingMore = true);
     _currentPage++;
-
     final authProv = context.read<AuthProvider>();
     try {
       final res = await authProv.authenticatedGet(
         '/api/products?search=$_search&page=$_currentPage&limit=10',
       );
-
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
         final List newItems = data['data']?['data'] ?? [];
-
         if (mounted) {
           setState(() {
             _products.addAll(newItems);
@@ -1321,29 +1232,29 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
         "Pilih Menu Tambahan",
         style: TextStyle(
           fontWeight: FontWeight.bold,
-          fontSize: widget.isMobile ? 12 : 20,
+          fontSize: widget.isMobile ? 14 : 20,
         ),
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       content: SizedBox(
-        width: widget.isMobile ? 250 : 450,
+        width: widget.isMobile ? 350 : 450,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              height: widget.isMobile ? 26 : 48,
+              height: widget.isMobile ? 40 : 48,
               child: TextField(
-                style: TextStyle(fontSize: widget.isMobile ? 9 : 14),
+                style: TextStyle(fontSize: widget.isMobile ? 12 : 14),
                 decoration: InputDecoration(
                   hintText: "Cari produk...",
                   prefixIcon: Icon(
                     Icons.search,
                     color: Colors.grey,
-                    size: widget.isMobile ? 12 : 24,
+                    size: widget.isMobile ? 18 : 24,
                   ),
                   contentPadding: const EdgeInsets.symmetric(
                     vertical: 0,
-                    horizontal: 12,
+                    horizontal: 16,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -1355,9 +1266,9 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                 },
               ),
             ),
-            SizedBox(height: widget.isMobile ? 6 : 16),
+            SizedBox(height: widget.isMobile ? 12 : 16),
             SizedBox(
-              height: widget.isMobile ? 160 : 400,
+              height: widget.isMobile ? 300 : 400,
               child:
                   _isLoading
                       ? const Center(child: CircularProgressIndicator())
@@ -1367,7 +1278,7 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                           "Produk tidak ditemukan",
                           style: TextStyle(
                             color: Colors.grey,
-                            fontSize: widget.isMobile ? 9 : 14,
+                            fontSize: widget.isMobile ? 12 : 14,
                           ),
                         ),
                       )
@@ -1405,12 +1316,12 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                                       0);
                           return ListTile(
                             contentPadding: EdgeInsets.symmetric(
-                              vertical: widget.isMobile ? 2 : 8,
-                              horizontal: widget.isMobile ? 4 : 8,
+                              vertical: widget.isMobile ? 4 : 8,
+                              horizontal: widget.isMobile ? 8 : 12,
                             ),
                             leading: Container(
-                              width: widget.isMobile ? 20 : 50,
-                              height: widget.isMobile ? 20 : 50,
+                              width: widget.isMobile ? 36 : 50,
+                              height: widget.isMobile ? 36 : 50,
                               decoration: BoxDecoration(
                                 color: Colors.blue.shade50,
                                 borderRadius: BorderRadius.circular(8),
@@ -1418,46 +1329,46 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                               child: Icon(
                                 Icons.fastfood,
                                 color: const Color(0xFF0061C1),
-                                size: widget.isMobile ? 12 : 24,
+                                size: widget.isMobile ? 18 : 24,
                               ),
                             ),
                             title: Text(
                               p['nama'] ?? '-',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: widget.isMobile ? 9 : 14,
+                                fontSize: widget.isMobile ? 12 : 14,
                               ),
                             ),
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                SizedBox(height: widget.isMobile ? 1 : 4),
+                                SizedBox(height: widget.isMobile ? 2 : 4),
                                 Text(
                                   formatCurrency.format(hargaJual),
                                   style: TextStyle(
                                     color: const Color(0xFF0061C1),
                                     fontWeight: FontWeight.bold,
-                                    fontSize: widget.isMobile ? 8 : 13,
+                                    fontSize: widget.isMobile ? 11 : 13,
                                   ),
                                 ),
-                                SizedBox(height: widget.isMobile ? 1 : 6),
+                                SizedBox(height: widget.isMobile ? 2 : 6),
                                 Row(
                                   children: [
                                     Icon(
                                       isAvailable
                                           ? Icons.check_circle
                                           : Icons.cancel,
-                                      size: widget.isMobile ? 8 : 14,
+                                      size: widget.isMobile ? 12 : 14,
                                       color:
                                           isAvailable
                                               ? Colors.green
                                               : Colors.red,
                                     ),
-                                    const SizedBox(width: 2),
+                                    const SizedBox(width: 4),
                                     Text(
                                       isAvailable ? "Tersedia" : "Habis",
                                       style: TextStyle(
-                                        fontSize: widget.isMobile ? 7 : 12,
+                                        fontSize: widget.isMobile ? 10 : 12,
                                         color:
                                             isAvailable
                                                 ? Colors.green
@@ -1476,7 +1387,7 @@ class _ProductSelectorDialogState extends State<ProductSelectorDialog> {
                                     isAvailable
                                         ? Colors.green
                                         : Colors.grey.shade400,
-                                size: widget.isMobile ? 16 : 32,
+                                size: widget.isMobile ? 24 : 32,
                               ),
                               onPressed:
                                   isAvailable
