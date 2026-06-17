@@ -273,6 +273,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
       ).showSnackBar(const SnackBar(content: Text("Uang bayar kurang!")));
       return;
     }
+
     setState(() => _isSubmitting = true);
     final authProv = context.read<AuthProvider>();
     _finalJumlahBayar = bayarValue;
@@ -362,6 +363,13 @@ class _CheckoutModalState extends State<CheckoutModal> {
   }
 
   Future<void> _processOpenBill() async {
+    if (_customerNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Nama customer wajib diisi!")),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
     final authProv = context.read<AuthProvider>();
 
