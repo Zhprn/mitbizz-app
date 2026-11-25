@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../../core/config/api_config.dart';
 import '../../../../core/services/print_service.dart';
 
 class OpenBillInvoiceModal extends StatelessWidget {
@@ -42,7 +42,7 @@ class OpenBillInvoiceModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String baseUrl = 'https://${dotenv.env['BASE_URL']}';
+    final String baseUrl = apiBaseUrl;
     final String? tenantImage = outletData['tenant']?['image'];
     final String fullImageUrl =
         tenantImage != null && tenantImage.isNotEmpty

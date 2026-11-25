@@ -3,7 +3,7 @@ import 'package:better_auth_flutter/better_auth_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/api_config.dart';
 
 class AuthProvider extends ChangeNotifier {
   User? _user;
@@ -12,7 +12,7 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
 
-  final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
+  final String _baseUrl = apiBaseUrl;
 
   User? get user => _user;
   Map<String, dynamic>? get userData => _userData;

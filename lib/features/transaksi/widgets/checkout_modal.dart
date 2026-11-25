@@ -5,7 +5,8 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../../core/services/print_service.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../../core/config/api_config.dart';
+import 'qris_payment_dialog.dart';
 
 class CheckoutModal extends StatefulWidget {
   final List<Map<String, dynamic>> cartItems;
@@ -38,6 +39,7 @@ class CheckoutModal extends StatefulWidget {
 class _CheckoutModalState extends State<CheckoutModal> {
   bool _isSubmitting = false;
   bool _isFinished = false;
+  bool _qrisEnabled = false;
   dynamic _orderData;
   List<dynamic> _fetchedOrderItems = [];
 
@@ -67,7 +69,7 @@ class _CheckoutModalState extends State<CheckoutModal> {
 
   Map<String, dynamic> _outletData = {};
   Map<String, dynamic> _tenantSettings = {};
-  final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
+  final String _baseUrl = apiBaseUrl;
   List<dynamic> _discounts = [];
   Map<String, dynamic>? _selectedDiscount;
 
@@ -213,6 +215,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
     final authProv = context.read<AuthProvider>();
     final myOutletId = authProv.outletId;
 
+    fetchQrisEnabled(authProv).then((enabled) {
+      if (mounted) setState(() => _qrisEnabled = enabled);
+    });
+
     try {
       final responses = await Future.wait([
         authProv.authenticatedGet(
@@ -264,6 +270,10 @@ class _CheckoutModalState extends State<CheckoutModal> {
   }
 
   Future<void> _processCheckout() async {
+    if (_qrisEnabled && isQrisMethod(paymentMethods, selectedPaymentMethodId)) {
+      return _processQris();
+    }
+
     final bayarValue =
         int.tryParse(_bayarController.text.replaceAll(RegExp(r'[^0-9]'), '')) ??
         0;
@@ -358,6 +368,97 @@ class _CheckoutModalState extends State<CheckoutModal> {
         context,
       ).showSnackBar(SnackBar(content: Text("Gagal: $e")));
     } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  /// Pesanan disimpan sebagai open bill dulu, lalu selesai setelah QRIS dibayar.
+  Future<void> _processQris() async {
+    setState(() => _isSubmitting = true);
+    final authProv = context.read<AuthProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    _finalCustomerName =
+        _customerNameController.text.trim().isNotEmpty
+            ? _customerNameController.text.trim()
+            : 'Guest';
+    final notes =
+        widget.enableOrderTipe
+            ? "[$_orderType] ${_notesController.text}".trim()
+            : _notesController.text.trim();
+
+    bool billSaved = false;
+    try {
+      final res = await authProv.authenticatedPost('/api/openbills', {
+        "tenantId": authProv.tenantId,
+        "outletId": authProv.outletId,
+        "notes": notes,
+        "nama": _finalCustomerName,
+        "nomorAntrian": "1",
+        "items":
+            widget.cartItems
+                .map(
+                  (item) => {
+                    "productId": item['id'],
+                    "quantity": item['qty'],
+                    "hargaSatuan": item['price'].toString(),
+                    "jumlahDiskon": "0",
+                    "total": (item['price'] * item['qty']).toString(),
+                  },
+                )
+                .toList(),
+      });
+      final resBody = json.decode(res.body);
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw resBody['message'] ?? "Gagal menyimpan pesanan";
+      }
+      billSaved = true;
+      if (!mounted) return;
+
+      final order = await payWithQris(
+        context,
+        orderId: resBody['data']['id'],
+        details: {
+          "paymentMethodId": selectedPaymentMethodId,
+          "jumlahPajak": _localPajak.toString(),
+          // Dihitung dari total di layar supaya nominal QR pasti sama.
+          "jumlahDiskon":
+              (_localSubTotal + _localPajak - _finalTotalAfterPromo).toString(),
+          "notes": notes,
+          "nama": _finalCustomerName,
+          "tipe": _orderType == "Take Away" ? "take_away" : "dine_in",
+        },
+      );
+      if (!mounted) return;
+
+      if (order != null) {
+        setState(() {
+          _orderData = order;
+          _fetchedOrderItems = order['orderItems'] ?? [];
+          _finalJumlahBayar = double.parse(order['total'].toString()).toInt();
+          _finalKembalian = 0;
+          _isFinished = true;
+        });
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(content: Text("Belum dibayar, tersimpan di Open Bill")),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(
+            billSaved
+                ? "QRIS gagal: $e. Pesanan tersimpan di Open Bill."
+                : "Gagal: $e",
+          ),
+        ),
+      );
+      // Pesanan sudah tersimpan; jangan sampai tersimpan dua kali.
+      if (billSaved && mounted) Navigator.pop(context);
+    } finally {
+      if (billSaved) widget.onSuccess();
       if (mounted) setState(() => _isSubmitting = false);
     }
   }

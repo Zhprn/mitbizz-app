@@ -4,7 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../../../core/config/api_config.dart';
 
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/shift_provider.dart';
@@ -22,7 +22,7 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   DateTime _now = DateTime.now();
   late Timer _timer;
-  final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
+  final String _baseUrl = apiBaseUrl;
 
   bool _isLoadingDashboard = false;
   int _totalDiskon = 0;

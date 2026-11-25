@@ -6,6 +6,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:mitbiz_app/features/riwayat_transaksi/pages/riwayat_transaksi_page.dart';
 import 'package:mitbiz_app/features/stok/pages/stok_page.dart';
 import 'package:provider/provider.dart';
+import 'core/config/api_config.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/shift_provider.dart';
 import 'core/widgets/auth_guard.dart';
@@ -29,9 +30,7 @@ void main() async {
     Permission.bluetoothConnect,
   ].request();
 
-  await BetterAuth.init(
-    baseUrl: Uri(scheme: "https", host: dotenv.env['BASE_URL']),
-  );
+  await BetterAuth.init(baseUrl: Uri.parse(apiBaseUrl));
 
   runApp(
     DevicePreview(

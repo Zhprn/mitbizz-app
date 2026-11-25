@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'auth_provider.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/api_config.dart';
 
 class ShiftProvider extends ChangeNotifier {
   bool _isShiftActive = false;
@@ -11,7 +11,7 @@ class ShiftProvider extends ChangeNotifier {
   String? _activeShiftId;
   bool _isProcessing = false;
 
-  final String _baseUrl = 'https://${dotenv.env['BASE_URL']}';
+  final String _baseUrl = apiBaseUrl;
 
   bool get isShiftActive => _isShiftActive;
   String? get startTime => _startTime;

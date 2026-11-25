@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
 import '../../../../core/providers/auth_provider.dart';
+import '../../transaksi/widgets/qris_payment_dialog.dart';
 import 'open_bill_invoice_modal.dart';
 
 class OpenBillDetailModal extends StatefulWidget {
@@ -27,6 +28,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
   String? _selectedPaymentId;
   Map<String, dynamic>? _selectedDiscount;
   bool _isSubmitting = false;
+  bool _qrisEnabled = false;
   bool _isLoadingMethods = true;
   String _receiptFooter = 'Terima Kasih';
   double _taxRate = 0.0;
@@ -38,6 +40,9 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     _currentItems = List.from(widget.bill['orderItems'] ?? []);
     _fetchPaymentMethods();
     _fetchOutletAndTaxData();
+    fetchQrisEnabled(context.read<AuthProvider>()).then((enabled) {
+      if (mounted) setState(() => _qrisEnabled = enabled);
+    });
   }
 
   @override
@@ -151,6 +156,14 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
     }
   }
 
+  void _showError(Object error) {
+    debugPrint("Error: $error");
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Gagal: $error"), backgroundColor: Colors.red),
+    );
+  }
+
   Future<void> _cancelOpenBill() async {
     final authProv = context.read<AuthProvider>();
     setState(() => _isSubmitting = true);
@@ -164,9 +177,11 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
           Navigator.pop(context);
           widget.onRefresh();
         }
+      } else {
+        _showError(json.decode(res.body)['message'] ?? "Gagal membatalkan");
       }
     } catch (e) {
-      debugPrint("Error: $e");
+      _showError(e);
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -220,12 +235,36 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
         "diskonBreakdown": diskonBreakdown,
         "total": _total.toInt().toString(),
       };
-      final res = await authProv.authenticatedPost(
-        '/api/openbills/${widget.bill['id']}/close',
-        payload,
-      );
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final responseData = json.decode(res.body)['data'] ?? {};
+      Map<String, dynamic>? responseData;
+      if (_qrisEnabled && isQrisMethod(_allPaymentMethods, _selectedPaymentId)) {
+        responseData = await payWithQris(
+          context,
+          orderId: widget.bill['id'].toString(),
+          details: {
+            "paymentMethodId": _selectedPaymentId,
+            "notes": payload["notes"],
+            "jumlahPajak": payload["jumlahPajak"],
+            // Dihitung dari total di layar supaya nominal QR pasti sama.
+            "jumlahDiskon":
+                (_subtotal.toInt() + _pajak.toInt() - _total.toInt())
+                    .toString(),
+            "diskonBreakdown": diskonBreakdown,
+            "nama": customerName,
+          },
+        );
+      } else {
+        final res = await authProv.authenticatedPost(
+          '/api/openbills/${widget.bill['id']}/close',
+          payload,
+        );
+        final resBody = json.decode(res.body);
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          throw resBody['message'] ?? "Gagal memproses pembayaran";
+        }
+        responseData = Map<String, dynamic>.from(resBody['data'] ?? {});
+      }
+      if (responseData != null) {
+        final paidOrder = responseData;
         if (mounted) {
           Navigator.pop(context);
           String payName = '-';
@@ -241,18 +280,18 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
             builder:
                 (context) => OpenBillInvoiceModal(
                   orderData: {
-                    ...responseData,
+                    ...paidOrder,
                     'tunai': _isTunaiPayment ? bayarValue : _total.toInt(),
                     'kembalian': _isTunaiPayment ? _kembalian : 0,
                     'customerName': customerName,
                     'nomorAntrian':
                         widget.bill['nomorAntrian'] ??
-                        responseData['nomorAntrian'] ??
+                        paidOrder['nomorAntrian'] ??
                         '-',
                     'cashierName': authProv.user?.name ?? 'Kasir',
                     'total': _total.toInt(),
                     'orderNumber':
-                        responseData['orderNumber'] ??
+                        paidOrder['orderNumber'] ??
                         widget.bill['orderNumber'] ??
                         '-',
                   },
@@ -265,7 +304,7 @@ class _OpenBillDetailModalState extends State<OpenBillDetailModal> {
         }
       }
     } catch (e) {
-      debugPrint("Error: $e");
+      _showError(e);
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }

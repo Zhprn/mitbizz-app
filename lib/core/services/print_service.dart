@@ -1,6 +1,6 @@
 import 'package:esc_pos_utils_plus/esc_pos_utils_plus.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../config/api_config.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'dart:async';
@@ -20,8 +20,7 @@ class PrintService {
 
   static String _buildLogoUrl(String? logoPath) {
     if (logoPath == null || logoPath.isEmpty) return '';
-    final baseUrl = dotenv.env['BASE_URL'] ?? '';
-    return 'https://$baseUrl/$logoPath';
+    return '$apiBaseUrl/$logoPath';
   }
 
   static Future<void> printInvoice({
