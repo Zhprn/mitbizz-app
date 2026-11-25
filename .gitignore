@@ -45,4 +45,6 @@ app.*.map.json
 /android/app/release
 
 # Local environment variables
+.envandroid/.kotlin/
+
 .env
